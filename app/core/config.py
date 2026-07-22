@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     cors_allowed_headers: str = "Authorization,Content-Type,Accept,Origin,X-Requested-With,X-Request-ID,X-CSRF-Token,X-Client-Version,X-Server-ID"
     cors_expose_headers: str = "X-Request-ID,Content-Disposition,X-Total-Count"
     cors_max_age_seconds: int = Field(default=600, ge=0, le=86400)
-    allowed_hosts: str = Field(default="localhost,127.0.0.1,test,testserver", validation_alias=AliasChoices("TRUSTED_HOSTS", "ALLOWED_HOSTS"))
+    allowed_hosts: str = Field(default="localhost,127.0.0.1,test,testserver,healthcheck.railway.app", validation_alias=AliasChoices("TRUSTED_HOSTS", "ALLOWED_HOSTS"))
     force_https: bool = False
     rate_limit_enabled: bool = True
     rate_limit_requests: int = Field(default=30, ge=1)
