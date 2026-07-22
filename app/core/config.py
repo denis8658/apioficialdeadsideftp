@@ -1,7 +1,7 @@
 from functools import lru_cache
 from urllib.parse import urlsplit
 
-from pydantic import AliasChoices, Field, SecretStr, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.cors import normalize_origins, parse_csv, validate_origin_regex
@@ -80,6 +80,17 @@ class Settings(BaseSettings):
     map_grid_size: float = 128.0
     map_grid_start_column_offset: int = 3
     position_tolerance_unreal: float = 1.0
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value):
+        """Use the async PostgreSQL driver with provider-issued URLs."""
+        if isinstance(value, str):
+            if value.startswith("postgresql://"):
+                return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+            if value.startswith("postgres://"):
+                return value.replace("postgres://", "postgresql+asyncpg://", 1)
+        return value
 
     @model_validator(mode="after")
     def validate_browser_security(self):

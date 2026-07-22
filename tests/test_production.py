@@ -98,3 +98,14 @@ def test_port_uses_railway_environment_alias(monkeypatch):
     monkeypatch.setenv("PORT", "9123")
     settings = Settings(_env_file=None)
     assert settings.api_port == 9123
+
+
+def test_railway_postgresql_url_uses_asyncpg_driver():
+    settings = Settings(
+        _env_file=None,
+        database_url="postgresql://user:password@postgres.railway.internal:5432/railway",
+    )
+
+    assert settings.database_url == (
+        "postgresql+asyncpg://user:password@postgres.railway.internal:5432/railway"
+    )
