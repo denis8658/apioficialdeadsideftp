@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Deadside API — teste CORS</title>
+  <style>
+    body { max-width: 900px; margin: 2rem auto; padding: 0 1rem; font: 16px system-ui; color: #172033; }
+    label { display: block; margin: .8rem 0 .25rem; font-weight: 600; }
+    input, select, button { box-sizing: border-box; padding: .65rem; font: inherit; }
+    input, select { width: 100%; }
+    button { margin: 1rem .5rem 0 0; cursor: pointer; }
+    pre { min-height: 8rem; padding: 1rem; overflow: auto; background: #101827; color: #d7e2f2; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Teste de navegador — Deadside API</h1>
+  <p>Sirva esta página por HTTP em uma origem autorizada. Não a abra diretamente como <code>file://</code>.</p>
+
+  <label for="apiUrl">API URL</label>
+  <input id="apiUrl" value="http://localhost:8000">
+  <label for="serverId">Server ID ou slug</label>
+  <input id="serverId" value="SEU_SERVIDOR">
+  <label for="jwt">JWT Bearer</label>
+  <input id="jwt" type="password" autocomplete="off" placeholder="Opcional para endpoints públicos">
+  <label for="channel">Canal WebSocket</label>
+  <select id="channel"><option>kills</option><option>map</option><option>sync</option><option>events</option></select>
+
+  <button id="get">Executar GET kills</button>
+  <button id="post">Executar POST sync/run</button>
+  <button id="ws">Testar WebSocket</button>
+  <button id="closeWs">Fechar WebSocket</button>
+  <pre id="output">Aguardando teste…</pre>
+
+  <script>
+    const output = document.querySelector("#output");
+    let socket;
+    const values = () => ({
+      api: document.querySelector("#apiUrl").value.replace(/\/$/, ""),
+      server: encodeURIComponent(document.querySelector("#serverId").value),
+      token: document.querySelector("#jwt").value,
+      channel: document.querySelector("#channel").value
+    });
+
+    async function request(method, suffix) {
+      const { api, server, token } = values();
+      const headers = { "Accept": "application/json", "X-Request-ID": crypto.randomUUID() };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      if (method === "POST") headers["Content-Type"] = "application/json";
+      output.textContent = `Executando ${method}…`;
+      try {
+        const response = await fetch(`${api}/api/v1/servers/${server}/${suffix}`, { method, headers });
+        const visibleHeaders = Object.fromEntries(response.headers.entries());
+        const body = await response.text();
+        output.textContent = JSON.stringify({ status: response.status, headers: visibleHeaders, body }, null, 2);
+      } catch (error) {
+        output.textContent = `Erro exato do navegador:\n${error.name}: ${error.message}`;
+      }
+    }
+
+    document.querySelector("#get").onclick = () => request("GET", "kills");
+    document.querySelector("#post").onclick = () => request("POST", "sync/run");
+    document.querySelector("#ws").onclick = () => {
+      const { api, server, token, channel } = values();
+      const wsBase = api.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
+      const tokenParam = token ? `?token=${encodeURIComponent(token)}` : "";
+      output.textContent = "Conectando WebSocket…";
+      socket = new WebSocket(`${wsBase}/api/v1/servers/${server}/ws/${channel}${tokenParam}`);
+      socket.onopen = () => { output.textContent = "WebSocket conectado."; };
+      socket.onmessage = event => { output.textContent += `\n${event.data}`; };
+      socket.onerror = () => { output.textContent += "\nErro WebSocket. Verifique Origin, JWT, ws/wss e proxy."; };
+      socket.onclose = event => { output.textContent += `\nWebSocket fechado: code=${event.code} reason=${event.reason || "sem razão"}`; };
+    };
+    document.querySelector("#closeWs").onclick = () => socket?.close(1000, "teste concluído");
+  </script>
+</body>
+</html>
