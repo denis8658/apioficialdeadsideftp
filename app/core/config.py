@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     database_pool_recycle_seconds: int = Field(default=1800, ge=60)
     database_command_timeout_seconds: int = Field(default=30, ge=1)
     ftp_poll_interval_seconds: int = Field(default=5, ge=1)
+    ftp_live_position_interval_seconds: float = Field(default=0.5, ge=0.1, le=5.0)
     ftp_sync_autostart: bool = True
     ftp_protocol: str = "ftp"
     ftp_host: str = ""
@@ -76,12 +77,11 @@ class Settings(BaseSettings):
     map_min_y: float = -1408.0
     map_max_y: float = 0.0
     map_origin_x: float = 640.0
-    map_origin_y: float = -896.0
+    map_origin_y: float = -192.0
     unreal_units_per_map_unit: float = 781.25
     map_grid_size: float = 128.0
     map_grid_start_column_offset: int = 3
     position_tolerance_unreal: float = 1.0
-    live_player_max_age_seconds: int = Field(default=120, ge=15, le=600)
 
     @field_validator("database_url", mode="before")
     @classmethod

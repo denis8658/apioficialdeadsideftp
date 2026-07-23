@@ -76,7 +76,7 @@ export function Dashboard() {
   const [stats, setStats] = useState<Dict>({});
   const [sync, setSync] = useState<Dict>({});
   const [wsStatus, setWsStatus] = useState<Dict>({});
-  const [liveMap, setLiveMap] = useState<Dict>({ players: [], count: 0, max_age_seconds: 120 });
+  const [liveMap, setLiveMap] = useState<Dict>({ players: [], count: 0, position_poll_interval_seconds: 0.5 });
   const [mapZoom, setMapZoom] = useState(1);
   const [selectedMarker, setSelectedMarker] = useState<Dict | null>(null);
   const [wsToken, setWsToken] = useState("");
@@ -112,7 +112,8 @@ export function Dashboard() {
     const refreshLivePlayers = async () => {
       try { setLiveMap(await api<Dict>(`${API_ROOT}/map/live-players`)); } catch { /* atualização geral exibirá o erro */ }
     };
-    const timer = setInterval(refreshLivePlayers, 5000);
+    refreshLivePlayers();
+    const timer = setInterval(refreshLivePlayers, 500);
     return () => clearInterval(timer);
   }, []);
   useEffect(() => { const saved = localStorage.getItem("deadside-ws-token"); if (saved) setWsToken(saved); }, []);
@@ -192,7 +193,7 @@ export function Dashboard() {
     const markerRows = (liveMap.players || []).map((item: Dict) => ({ ...item, kind: "character" })).filter((item: Dict) => item.map_position?.inside_map);
     return <div className="map-layout">
       <article className="panel map-panel">
-        <PanelHead title="Jogadores ao vivo em Mirny" subtitle={`Somente arquivos FTP atualizados nos últimos ${liveMap.max_age_seconds || 120} segundos`} action={<Badge tone="good">atualiza a cada 5 s</Badge>} />
+        <PanelHead title="Jogadores ao vivo em Mirny" subtitle="Sessões confirmadas pelos eventos Join/Logout do log do servidor" action={<Badge tone="good">atualiza a cada 0,5 s</Badge>} />
         <div className="map-viewport">
           <div className="map-canvas" style={{ transform: `scale(${mapZoom})` }}>
             <img src={`/api/proxy?path=${encodeURIComponent("/api/v1/maps/mirny/image")}`} alt="Mapa completo de Mirny" />

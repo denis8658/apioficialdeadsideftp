@@ -426,7 +426,7 @@ As posições vêm dos JSON de personagens e veículos. A imagem não vem do FTP
 | `POST /api/v1/servers/{server_id}/map/convert` | JSON `{"x":12345,"y":-67890,"z":250}` em coordenadas Unreal | `world_position` e `map_position`; esta última contém `inside_map` e `grid`. |
 | `POST /api/v1/servers/{server_id}/map/reverse-convert` | JSON `{"x":640,"y":-896}` no mapa | Coordenadas `x/y` aproximadas no mundo do jogo. |
 | `GET /api/v1/servers/{server_id}/map/entities` | Nenhuma | Personagens com posição e veículos ativos com posição, prontos para marcadores. |
-| `GET /api/v1/servers/{server_id}/map/live-players` | `max_age_seconds` opcional, 15–600 | Somente jogadores cujo arquivo de personagem foi modificado recentemente no FTP. O padrão é `LIVE_PLAYER_MAX_AGE_SECONDS=120`; veículos e posições antigas nunca entram nesta resposta. |
+| `GET /api/v1/servers/{server_id}/map/live-players` | sem filtro obrigatório | Somente sessões confirmadas pelos marcadores `Join succeeded` e `has logged out` do `Saved/Logs/Deadside.log`. O monitor baixa apenas os saves desses jogadores em `characters*/world_*`, com alvo de `FTP_LIVE_POSITION_INTERVAL_SECONDS=0.5`, e publica `character.position.sampled` no WebSocket. Veículos e jogadores desconectados nunca entram nesta resposta. |
 | `GET /api/v1/maps/mirny/image` | Nenhuma | PNG consolidado 1280×1408, com cache público de 24 horas e `Content-Disposition`. |
 | `GET /static/maps/mirny/tiles/map_{x}_{y}.png` | `x` e `y` de 0 a 2 no caminho | Tile original 512×512. Arquivo inexistente retorna 404. |
 
@@ -469,7 +469,7 @@ Fluxo recomendado para uma instalação nova:
 
 ## Segurança e limitações
 
-A API não declara jogadores online com base apenas na idade do arquivo. A resposta usa `position_freshness` e `source_age_seconds`. JWT, roles, auditoria e SFTP continuam fora desta fase. Antes de distribuir publicamente a imagem fornecida, confirme os direitos de uso.
+A API não declara jogadores online com base apenas na idade do arquivo. O endpoint `map/live-players` reconstrói as sessões pelos eventos de entrada e saída do `Deadside.log`; `source_age_seconds` informa separadamente a idade da última amostra de posição. JWT, roles, auditoria e SFTP continuam fora desta fase. Antes de distribuir publicamente a imagem fornecida, confirme os direitos de uso.
 
 ## Montagem dos tiles do mapa
 

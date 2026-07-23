@@ -13,6 +13,7 @@ from app.services.ftp import (
     ReadOnlyFTPClient,
     RemoteEntry,
     discover_tree,
+    parse_online_logins,
     remote_changed,
     stable_metadata,
 )
@@ -110,6 +111,15 @@ def test_stable_file_is_accepted():
     assert stable_metadata(RemoteEntry("/a", 1, modified), RemoteEntry("/a", 1, modified))
 
 
+def test_online_logins_follow_join_and_logout_order():
+    content = b"\n".join([
+        b"[1]LogNet: Join succeeded: OLD_PLAYER",
+        b"[2]LogNet: Join succeeded: ODIO_-ETERNO",
+        b"[3]LogOnline: Player ltEOS OLD_PLAYER  has logged out by reason: LostConnection",
+    ])
+    assert parse_online_logins(content) == {"ODIO_-ETERNO"}
+
+
 @pytest.mark.asyncio
 async def test_simultaneous_runs_return_already_running(monkeypatch):
     manager = FTPSyncManager()
@@ -128,12 +138,41 @@ async def test_start_is_idempotent(monkeypatch):
     manager = FTPSyncManager()
     server_id = __import__("uuid").uuid4()
     monkeypatch.setattr(manager, "_poll", AsyncMock())
+    monkeypatch.setattr(manager, "_live_positions", AsyncMock())
     first = manager.start(server_id)
     second = manager.start(server_id)
     assert first["status"] == "started"
     assert second["status"] == "already_running"
     manager._tasks[server_id].cancel()
     await asyncio.gather(manager._tasks[server_id], return_exceptions=True)
+    manager._live_tasks[server_id].cancel()
+    await asyncio.gather(manager._live_tasks[server_id], return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_character_directories_use_discovered_world_folder(monkeypatch):
+    manager = FTPSyncManager()
+    server_id = __import__("uuid").uuid4()
+    connection = SimpleNamespace(path_patterns={"characters_path": "/Deadside/Saved/actual1/characters1-9"})
+    session = SimpleNamespace(
+        __aenter__=AsyncMock(),
+        __aexit__=AsyncMock(),
+        scalar=AsyncMock(return_value=connection),
+    )
+
+    class SessionContext:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, *_):
+            return None
+
+    monkeypatch.setattr("app.services.ftp.SessionLocal", SessionContext)
+    client = SimpleNamespace(list_dir=AsyncMock(return_value=[
+        RemoteEntry("/Deadside/Saved/actual1/characters1-9/world_0", 0, None, True)
+    ]))
+    directories = await manager._character_directories(server_id, client)
+    assert directories == ["/Deadside/Saved/actual1/characters1-9/world_0"]
 
 
 def test_secret_does_not_appear_in_logs(caplog):

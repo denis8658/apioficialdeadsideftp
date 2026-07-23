@@ -11,22 +11,22 @@ class MapPoint:
 
 
 class MapService:
-    """Versioned provisional calibration inferred from the Mirny community map."""
+    """Mirny calibration anchored by an in-game world/grid observation."""
 
-    calibration_name = "mirny-ds-info-v1"
-    calibration_version = 1
-    calibration_status = "provisional"
+    calibration_name = "mirny-live-h5-v2"
+    calibration_version = 2
+    calibration_status = "field_calibrated"
 
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
 
     def deadside_to_map(self, world_x: float, world_y: float) -> MapPoint:
         scale = self.settings.unreal_units_per_map_unit
-        return MapPoint(self.settings.map_origin_x + world_y / scale, self.settings.map_origin_y + world_x / scale)
+        return MapPoint(self.settings.map_origin_x + world_x / scale, self.settings.map_origin_y + world_y / scale)
 
     def map_to_deadside(self, map_x: float, map_y: float) -> MapPoint:
         scale = self.settings.unreal_units_per_map_unit
-        return MapPoint((map_y - self.settings.map_origin_y) * scale, (map_x - self.settings.map_origin_x) * scale)
+        return MapPoint((map_x - self.settings.map_origin_x) * scale, (map_y - self.settings.map_origin_y) * scale)
 
     def is_inside_map(self, map_x: float, map_y: float) -> bool:
         s = self.settings

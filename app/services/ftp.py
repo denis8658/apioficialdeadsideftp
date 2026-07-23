@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import re
 import time
 import uuid
 from dataclasses import asdict, dataclass
@@ -13,10 +14,11 @@ import aioftp
 from sqlalchemy import select
 
 from app.core.config import Settings, get_settings
-from app.db.models import FTPConnection, FileCategory, RemoteFile, SyncRun
+from app.db.models import CharacterCurrent, FTPConnection, FileCategory, RemoteFile, SyncRun
 from app.db.session import SessionLocal
 from app.services.ingestion import ZipImporter, categorize_path
 from app.services.event_service import event_service
+from app.services.map_service import MapService
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +170,20 @@ def stable_metadata(before: RemoteEntry, after: RemoteEntry) -> bool:
     return before.size == after.size and before.modified_at == after.modified_at
 
 
+def parse_online_logins(content: bytes) -> set[str]:
+    """Build current session state from safe join/logout markers in Deadside.log."""
+    online: set[str] = set()
+    for line in content.decode("utf-8", errors="replace").splitlines():
+        joined = re.search(r"Join succeeded:\s*(.+?)\s*$", line)
+        if joined:
+            online.add(joined.group(1))
+            continue
+        logged_out = re.search(r"Player\s+(?:ltEOS\s+)?(.+?)\s+has logged out\b", line)
+        if logged_out:
+            online.discard(logged_out.group(1))
+    return online
+
+
 @dataclass
 class SyncStatus:
     running: bool = False
@@ -188,6 +204,9 @@ class FTPSyncManager:
         self.settings = get_settings()
         self._locks: dict[uuid.UUID, asyncio.Lock] = {}
         self._tasks: dict[uuid.UUID, asyncio.Task] = {}
+        self._live_tasks: dict[uuid.UUID, asyncio.Task] = {}
+        self._online_logins: dict[uuid.UUID, set[str]] = {}
+        self._online_player_ids: dict[uuid.UUID, set[str]] = {}
         self._statuses: dict[uuid.UUID, SyncStatus] = {}
 
     def status(self, server_id: uuid.UUID) -> dict[str, Any]:
@@ -195,7 +214,13 @@ class FTPSyncManager:
         result = asdict(state)
         result["state"] = "running" if state.running else "stopped"
         result["connection"] = "connected" if state.connected else "disconnected"
+        result["live_position_monitor"] = "running" if server_id in self._live_tasks else "stopped"
+        result["live_position_interval_seconds"] = self.settings.ftp_live_position_interval_seconds
+        result["online_players"] = len(self._online_player_ids.get(server_id, set()))
         return result
+
+    def online_player_ids(self, server_id: uuid.UUID) -> set[str]:
+        return set(self._online_player_ids.get(server_id, set()))
 
     async def test_connection(self) -> dict[str, Any]:
         started = time.perf_counter()
@@ -252,7 +277,11 @@ class FTPSyncManager:
                         if not was_connected:
                             await event_service.publish_after_commit(event="ftp.connected", server_id=server_id, source="ftp_sync", data={"connected_at": datetime.now(UTC).isoformat()})
                         entries, _ = await discover_tree(client, self.settings.ftp_root_path, self.settings.ftp_discovery_max_depth)
-                        files = [x for x in entries if _monitored(x)][:self.settings.ftp_max_files_per_cycle]
+                        files = [
+                            x for x in entries
+                            if _monitored(x)
+                            and not (trigger == "polling" and categorize_path(x.path) == FileCategory.character)
+                        ][:self.settings.ftp_max_files_per_cycle]
                         counts["scanned"] = len(files)
                         importer = ZipImporter(session)
                         with TemporaryDirectory(prefix="deadside-ftp-") as temp_dir:
@@ -325,11 +354,150 @@ class FTPSyncManager:
             self._tasks.pop(server_id, None)
             self._statuses.setdefault(server_id, SyncStatus()).running = False
 
+    async def _character_directories(self, server_id: uuid.UUID, client: ReadOnlyFTPClient) -> list[str]:
+        async with SessionLocal() as session:
+            connection = await session.scalar(select(FTPConnection).where(FTPConnection.server_id == server_id))
+            root = (connection.path_patterns or {}).get("characters_path") if connection else None
+        if not root:
+            _, paths = await discover_tree(client, self.settings.ftp_root_path, self.settings.ftp_discovery_max_depth)
+            root = paths.get("characters_path")
+        if not root:
+            raise FTPIntegrationError("FTP_CHARACTERS_NOT_FOUND", "Diretório de personagens não encontrado no FTP.")
+        children = await client.list_dir(root)
+        worlds = [entry.path for entry in children if entry.is_dir and PurePosixPath(entry.path).name.lower().startswith("world_")]
+        return worlds or [root]
+
+    async def _current_log_path(self, server_id: uuid.UUID, client: ReadOnlyFTPClient) -> str:
+        async with SessionLocal() as session:
+            connection = await session.scalar(select(FTPConnection).where(FTPConnection.server_id == server_id))
+            root = (connection.path_patterns or {}).get("logs_path") if connection else None
+        root = root or "/Deadside/Saved/Logs"
+        children = await client.list_dir(root)
+        current = next(
+            (entry.path for entry in children if not entry.is_dir and PurePosixPath(entry.path).name.casefold() == "deadside.log"),
+            None,
+        )
+        if not current:
+            raise FTPIntegrationError("FTP_CURRENT_LOG_NOT_FOUND", "Log atual do servidor não encontrado no FTP.")
+        return current
+
+    async def _download_bytes(self, client: ReadOnlyFTPClient, remote_path: str, prefix: str) -> bytes:
+        with TemporaryDirectory(prefix=prefix) as temp_dir:
+            local = Path(temp_dir) / "remote.download"
+            await client.download(remote_path, local)
+            return local.read_bytes()
+
+    async def _refresh_online_player_ids(self, server_id: uuid.UUID):
+        logins = self._online_logins.get(server_id, set())
+        if not logins:
+            self._online_player_ids[server_id] = set()
+            return
+        async with SessionLocal() as session:
+            ids = (await session.scalars(
+                select(CharacterCurrent.player_id).where(
+                    CharacterCurrent.server_id == server_id,
+                    CharacterCurrent.login.in_(logins),
+                )
+            )).all()
+        self._online_player_ids[server_id] = set(ids)
+
+    async def _refresh_online_sessions(self, server_id: uuid.UUID, client: ReadOnlyFTPClient, log_path: str):
+        content = await self._download_bytes(client, log_path, "deadside-log-")
+        self._online_logins[server_id] = parse_online_logins(content)
+        await self._refresh_online_player_ids(server_id)
+
+    async def _ingest_live_character(self, server_id: uuid.UUID, client: ReadOnlyFTPClient, remote: RemoteEntry):
+        if remote.size > self.settings.ftp_max_file_size_mb * 1024 * 1024:
+            return
+        content = await self._download_bytes(client, remote.path, "deadside-live-")
+        if len(content) > self.settings.ftp_max_file_size_mb * 1024 * 1024:
+            return
+        observed = datetime.now(UTC)
+        player_id = PurePosixPath(remote.path).stem
+        async with SessionLocal() as session:
+            await ZipImporter(session).process_content(
+                server_id, remote.path, content, len(content), remote.modified_at
+            )
+            character = await session.scalar(select(CharacterCurrent).where(
+                CharacterCurrent.server_id == server_id,
+                CharacterCurrent.player_id == player_id,
+            ))
+            if character is None or character.pos_x is None or character.pos_y is None:
+                return
+            character.observed_at = observed
+            await session.commit()
+            data = {
+                "player_id": character.player_id,
+                "name": character.login,
+                "observed_at": observed.isoformat(),
+                **MapService().position(character.pos_x, character.pos_y, character.pos_z),
+                "position_freshness": "live",
+            }
+        await event_service.publish_after_commit(
+            event="character.position.sampled",
+            server_id=server_id,
+            entity_type="character",
+            entity_id=player_id,
+            occurred_at=observed,
+            source="ftp_live_monitor",
+            data=data,
+        )
+
+    async def _live_positions(self, server_id: uuid.UUID):
+        """Use server sessions to poll only online character saves every configured interval."""
+        try:
+            while True:
+                try:
+                    async with ReadOnlyFTPClient(self.settings) as client:
+                        directories = await self._character_directories(server_id, client)
+                        log_path = await self._current_log_path(server_id, client)
+                        previous_log_metadata: tuple[int, datetime | None] | None = None
+                        bootstrap_characters = True
+                        character_files: list[RemoteEntry] = []
+                        while True:
+                            cycle_started = time.monotonic()
+                            log_entry = await client.stat(log_path)
+                            log_metadata = (log_entry.size, log_entry.modified_at)
+                            if log_metadata != previous_log_metadata:
+                                await self._refresh_online_sessions(server_id, client, log_path)
+                                previous_log_metadata = log_metadata
+                                entries: list[RemoteEntry] = []
+                                for directory in directories:
+                                    entries.extend(await client.list_dir(directory))
+                                character_files = [
+                                    entry for entry in entries
+                                    if not entry.is_dir and categorize_path(entry.path) == FileCategory.character
+                                ]
+                            online_ids = self._online_player_ids.get(server_id, set())
+                            targets = [remote for remote in character_files if PurePosixPath(remote.path).stem in online_ids]
+                            if bootstrap_characters and self._online_logins.get(server_id) and not targets:
+                                targets = character_files
+                            for remote in targets:
+                                await self._ingest_live_character(server_id, client, remote)
+                            if bootstrap_characters:
+                                bootstrap_characters = False
+                                await self._refresh_online_player_ids(server_id)
+                            elapsed = time.monotonic() - cycle_started
+                            await asyncio.sleep(max(0, self.settings.ftp_live_position_interval_seconds - elapsed))
+                except FTPIntegrationError as exc:
+                    logger.warning("Live FTP position monitor reconnecting: %s", exc.safe_message)
+                    await asyncio.sleep(self.settings.ftp_retry_base_seconds)
+                except Exception:
+                    logger.exception("Live FTP position monitor failed; reconnecting")
+                    await asyncio.sleep(self.settings.ftp_retry_base_seconds)
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._live_tasks.pop(server_id, None)
+            self._online_logins.pop(server_id, None)
+            self._online_player_ids.pop(server_id, None)
+
     def start(self, server_id: uuid.UUID) -> dict[str, Any]:
         if server_id in self._tasks:
             return {"status": "already_running", **self.status(server_id)}
         self._statuses.setdefault(server_id, SyncStatus()).running = True
         self._tasks[server_id] = asyncio.create_task(self._poll(server_id), name=f"ftp-sync-{server_id}")
+        self._live_tasks[server_id] = asyncio.create_task(self._live_positions(server_id), name=f"ftp-live-{server_id}")
         return {"status": "started", **self.status(server_id)}
 
     async def stop(self, server_id: uuid.UUID) -> dict[str, Any]:
@@ -337,13 +505,17 @@ class FTPSyncManager:
         if task is None:
             return {"status": "already_stopped", **self.status(server_id)}
         task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+        live_task = self._live_tasks.get(server_id)
+        if live_task is not None:
+            live_task.cancel()
+        await asyncio.gather(task, *([live_task] if live_task is not None else []), return_exceptions=True)
         return {"status": "stopped", **self.status(server_id)}
 
     async def shutdown(self):
-        for task in list(self._tasks.values()):
+        tasks = [*self._tasks.values(), *self._live_tasks.values()]
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(*self._tasks.values(), return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 ftp_sync_manager = FTPSyncManager()
