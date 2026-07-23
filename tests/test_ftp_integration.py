@@ -139,6 +139,7 @@ async def test_start_is_idempotent(monkeypatch):
     server_id = __import__("uuid").uuid4()
     monkeypatch.setattr(manager, "_poll", AsyncMock())
     monkeypatch.setattr(manager, "_live_positions", AsyncMock())
+    monkeypatch.setattr(manager, "_broadcast_live_positions", AsyncMock())
     first = manager.start(server_id)
     second = manager.start(server_id)
     assert first["status"] == "started"
@@ -147,6 +148,26 @@ async def test_start_is_idempotent(monkeypatch):
     await asyncio.gather(manager._tasks[server_id], return_exceptions=True)
     manager._live_tasks[server_id].cancel()
     await asyncio.gather(manager._live_tasks[server_id], return_exceptions=True)
+    manager._live_broadcast_tasks[server_id].cancel()
+    await asyncio.gather(manager._live_broadcast_tasks[server_id], return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_live_websocket_snapshots_follow_configured_interval(monkeypatch):
+    manager = FTPSyncManager()
+    manager.settings.ftp_live_position_interval_seconds = 0.01
+    server_id = __import__("uuid").uuid4()
+    manager._online_player_ids[server_id] = {"1671389361"}
+    manager._live_payloads[server_id] = {"1671389361": {"player_id": "1671389361", "map_position": {"grid": "H5"}}}
+    broadcast = AsyncMock()
+    monkeypatch.setattr("app.services.ftp.connection_manager.broadcast_to_channel", broadcast)
+    task = asyncio.create_task(manager._broadcast_live_positions(server_id))
+    await asyncio.sleep(0.035)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    assert broadcast.await_count >= 3
+    assert all(call.args[1] == "map" for call in broadcast.await_args_list)
+    assert all(call.args[2]["event"] == "character.position.live" for call in broadcast.await_args_list)
 
 
 @pytest.mark.asyncio

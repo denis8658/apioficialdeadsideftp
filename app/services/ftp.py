@@ -19,6 +19,7 @@ from app.db.session import SessionLocal
 from app.services.ingestion import ZipImporter, categorize_path
 from app.services.event_service import event_service
 from app.services.map_service import MapService
+from app.websocket.manager import connection_manager
 
 logger = logging.getLogger(__name__)
 
@@ -205,8 +206,10 @@ class FTPSyncManager:
         self._locks: dict[uuid.UUID, asyncio.Lock] = {}
         self._tasks: dict[uuid.UUID, asyncio.Task] = {}
         self._live_tasks: dict[uuid.UUID, asyncio.Task] = {}
+        self._live_broadcast_tasks: dict[uuid.UUID, asyncio.Task] = {}
         self._online_logins: dict[uuid.UUID, set[str]] = {}
         self._online_player_ids: dict[uuid.UUID, set[str]] = {}
+        self._live_payloads: dict[uuid.UUID, dict[str, dict[str, Any]]] = {}
         self._statuses: dict[uuid.UUID, SyncStatus] = {}
 
     def status(self, server_id: uuid.UUID) -> dict[str, Any]:
@@ -216,6 +219,8 @@ class FTPSyncManager:
         result["connection"] = "connected" if state.connected else "disconnected"
         result["live_position_monitor"] = "running" if server_id in self._live_tasks else "stopped"
         result["live_position_interval_seconds"] = self.settings.ftp_live_position_interval_seconds
+        result["websocket_snapshot_interval_seconds"] = self.settings.ftp_live_position_interval_seconds
+        result["websocket_snapshot_monitor"] = "running" if server_id in self._live_broadcast_tasks else "stopped"
         result["online_players"] = len(self._online_player_ids.get(server_id, set()))
         return result
 
@@ -400,6 +405,8 @@ class FTPSyncManager:
                 )
             )).all()
         self._online_player_ids[server_id] = set(ids)
+        payloads = self._live_payloads.get(server_id, {})
+        self._live_payloads[server_id] = {player_id: data for player_id, data in payloads.items() if player_id in ids}
 
     async def _refresh_online_sessions(self, server_id: uuid.UUID, client: ReadOnlyFTPClient, log_path: str):
         content = await self._download_bytes(client, log_path, "deadside-log-")
@@ -427,21 +434,48 @@ class FTPSyncManager:
             character.observed_at = observed
             await session.commit()
             data = {
+                "id": character.player_id,
                 "player_id": character.player_id,
-                "name": character.login,
+                "login": character.login,
+                "health": character.health,
+                "rot_yaw": character.rot_yaw,
                 "observed_at": observed.isoformat(),
+                "source_age_seconds": 0,
                 **MapService().position(character.pos_x, character.pos_y, character.pos_z),
                 "position_freshness": "live",
             }
-        await event_service.publish_after_commit(
-            event="character.position.sampled",
-            server_id=server_id,
-            entity_type="character",
-            entity_id=player_id,
-            occurred_at=observed,
-            source="ftp_live_monitor",
-            data=data,
-        )
+        self._live_payloads.setdefault(server_id, {})[player_id] = data
+
+    async def _broadcast_live_positions(self, server_id: uuid.UUID):
+        """Send non-persistent map snapshots every 0.5s without slowing FTP collection."""
+        try:
+            while True:
+                started = time.monotonic()
+                published_at = datetime.now(UTC).isoformat()
+                online_ids = self._online_player_ids.get(server_id, set())
+                payloads = self._live_payloads.get(server_id, {})
+                for player_id in online_ids:
+                    data = payloads.get(player_id)
+                    if data is None:
+                        continue
+                    await connection_manager.broadcast_to_channel(str(server_id), "map", {
+                        "event_id": str(uuid.uuid4()),
+                        "event": "character.position.live",
+                        "server_id": str(server_id),
+                        "occurred_at": published_at,
+                        "published_at": published_at,
+                        "entity_type": "character",
+                        "entity_id": player_id,
+                        "source": "ftp_live_monitor",
+                        "metadata": {"ephemeral": True, "interval_seconds": self.settings.ftp_live_position_interval_seconds},
+                        "data": data,
+                    })
+                elapsed = time.monotonic() - started
+                await asyncio.sleep(max(0, self.settings.ftp_live_position_interval_seconds - elapsed))
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._live_broadcast_tasks.pop(server_id, None)
 
     async def _live_positions(self, server_id: uuid.UUID):
         """Use server sessions to poll only online character saves every configured interval."""
@@ -491,6 +525,7 @@ class FTPSyncManager:
             self._live_tasks.pop(server_id, None)
             self._online_logins.pop(server_id, None)
             self._online_player_ids.pop(server_id, None)
+            self._live_payloads.pop(server_id, None)
 
     def start(self, server_id: uuid.UUID) -> dict[str, Any]:
         if server_id in self._tasks:
@@ -498,6 +533,7 @@ class FTPSyncManager:
         self._statuses.setdefault(server_id, SyncStatus()).running = True
         self._tasks[server_id] = asyncio.create_task(self._poll(server_id), name=f"ftp-sync-{server_id}")
         self._live_tasks[server_id] = asyncio.create_task(self._live_positions(server_id), name=f"ftp-live-{server_id}")
+        self._live_broadcast_tasks[server_id] = asyncio.create_task(self._broadcast_live_positions(server_id), name=f"ws-live-{server_id}")
         return {"status": "started", **self.status(server_id)}
 
     async def stop(self, server_id: uuid.UUID) -> dict[str, Any]:
@@ -508,11 +544,19 @@ class FTPSyncManager:
         live_task = self._live_tasks.get(server_id)
         if live_task is not None:
             live_task.cancel()
-        await asyncio.gather(task, *([live_task] if live_task is not None else []), return_exceptions=True)
+        broadcast_task = self._live_broadcast_tasks.get(server_id)
+        if broadcast_task is not None:
+            broadcast_task.cancel()
+        await asyncio.gather(
+            task,
+            *([live_task] if live_task is not None else []),
+            *([broadcast_task] if broadcast_task is not None else []),
+            return_exceptions=True,
+        )
         return {"status": "stopped", **self.status(server_id)}
 
     async def shutdown(self):
-        tasks = [*self._tasks.values(), *self._live_tasks.values()]
+        tasks = [*self._tasks.values(), *self._live_tasks.values(), *self._live_broadcast_tasks.values()]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

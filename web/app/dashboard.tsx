@@ -131,7 +131,15 @@ export function Dashboard() {
         try {
           const event = JSON.parse(message.data);
           if (event.event === "system.ping") socket.send(JSON.stringify({ event: "system.pong" }));
-          else { setLiveEvents((current) => [{ ...event, channel }, ...current].slice(0, 100)); if (!event.event?.startsWith("system.")) load(true); }
+          else {
+            setLiveEvents((current) => [{ ...event, channel }, ...current].slice(0, 100));
+            if (event.event === "character.position.live" && event.data?.player_id) {
+              setLiveMap((current: Dict) => {
+                const players = [...(current.players || []).filter((item: Dict) => item.player_id !== event.data.player_id), event.data];
+                return { ...current, players, count: players.length, generated_at: event.published_at };
+              });
+            } else if (!event.event?.startsWith("system.")) load(true);
+          }
         } catch { /* mensagem inválida ignorada */ }
       };
       socket.onerror = () => setWsState("error"); socket.onclose = () => { if (!sockets.current.some((item) => item.readyState === 1)) setWsState("fallback"); };
