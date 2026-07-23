@@ -426,6 +426,7 @@ As posições vêm dos JSON de personagens e veículos. A imagem não vem do FTP
 | `POST /api/v1/servers/{server_id}/map/convert` | JSON `{"x":12345,"y":-67890,"z":250}` em coordenadas Unreal | `world_position` e `map_position`; esta última contém `inside_map` e `grid`. |
 | `POST /api/v1/servers/{server_id}/map/reverse-convert` | JSON `{"x":640,"y":-896}` no mapa | Coordenadas `x/y` aproximadas no mundo do jogo. |
 | `GET /api/v1/servers/{server_id}/map/entities` | Nenhuma | Personagens com posição e veículos ativos com posição, prontos para marcadores. |
+| `GET /api/v1/servers/{server_id}/map/live-players` | `max_age_seconds` opcional, 15–600 | Somente jogadores cujo arquivo de personagem foi modificado recentemente no FTP. O padrão é `LIVE_PLAYER_MAX_AGE_SECONDS=120`; veículos e posições antigas nunca entram nesta resposta. |
 | `GET /api/v1/maps/mirny/image` | Nenhuma | PNG consolidado 1280×1408, com cache público de 24 horas e `Content-Disposition`. |
 | `GET /static/maps/mirny/tiles/map_{x}_{y}.png` | `x` e `y` de 0 a 2 no caminho | Tile original 512×512. Arquivo inexistente retorna 404. |
 

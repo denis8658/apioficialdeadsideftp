@@ -27,7 +27,7 @@ const endpointCatalog = [
   ["Últimas kills", "GET", `${API_ROOT}/kills/latest`], ["Feed", "GET", `${API_ROOT}/kills/feed`], ["Estatísticas", "GET", `${API_ROOT}/kills/statistics`],
   ["Leaderboard", "GET", `${API_ROOT}/kills/leaderboard`], ["Armas", "GET", `${API_ROOT}/kills/weapons`], ["Timeline", "GET", `${API_ROOT}/kills/timeline`],
   ["GeoJSON", "GET", `${API_ROOT}/kills/geojson`], ["Heatmap", "GET", `${API_ROOT}/kills/heatmap`], ["Mapa config", "GET", `${API_ROOT}/map/config`],
-  ["Entidades do mapa", "GET", `${API_ROOT}/map/entities`], ["WebSocket status", "GET", `${API_ROOT}/ws/status`], ["Eventos", "GET", `${API_ROOT}/events`],
+  ["Entidades do mapa", "GET", `${API_ROOT}/map/entities`], ["Jogadores ao vivo", "GET", `${API_ROOT}/map/live-players`], ["WebSocket status", "GET", `${API_ROOT}/ws/status`], ["Eventos", "GET", `${API_ROOT}/events`],
   ["Testar FTP", "POST", `${API_ROOT}/ftp/test`], ["Descobrir FTP", "POST", `${API_ROOT}/ftp/discover`],
   ["Sincronizar", "POST", `${API_ROOT}/sync/run`], ["Iniciar polling", "POST", `${API_ROOT}/sync/start`], ["Parar polling", "POST", `${API_ROOT}/sync/stop`],
 ];
@@ -76,9 +76,8 @@ export function Dashboard() {
   const [stats, setStats] = useState<Dict>({});
   const [sync, setSync] = useState<Dict>({});
   const [wsStatus, setWsStatus] = useState<Dict>({});
-  const [mapEntities, setMapEntities] = useState<Dict>({ characters: [], vehicles: [] });
+  const [liveMap, setLiveMap] = useState<Dict>({ players: [], count: 0, max_age_seconds: 120 });
   const [mapZoom, setMapZoom] = useState(1);
-  const [mapFilter, setMapFilter] = useState<"all" | "characters" | "vehicles">("all");
   const [selectedMarker, setSelectedMarker] = useState<Dict | null>(null);
   const [wsToken, setWsToken] = useState("");
   const [wsState, setWsState] = useState<"fallback" | "connecting" | "live" | "error">("fallback");
@@ -97,11 +96,11 @@ export function Dashboard() {
         api<Dict[]>(`${API_ROOT}/characters?limit=1000`), api<Dict[]>(`${API_ROOT}/vehicles?limit=1000`), api<Dict[]>(`${API_ROOT}/storages?limit=1000`),
         api<Dict[]>(`${API_ROOT}/kills?limit=1000`), api<Dict>(`${API_ROOT}/kills/statistics`), api<Dict>(`${API_ROOT}/kills/leaderboard?limit=100`),
         api<Dict>(`${API_ROOT}/kills/weapons`), api<Dict>(`${API_ROOT}/kills/timeline?interval=day`), api<Dict>(`${API_ROOT}/sync/status`),
-        api<Dict[]>(`${API_ROOT}/events?limit=100`), api<Dict>(`${API_ROOT}/map/entities`), api<Dict>(`${API_ROOT}/ws/status`),
+        api<Dict[]>(`${API_ROOT}/events?limit=100`), api<Dict>(`${API_ROOT}/map/live-players`), api<Dict>(`${API_ROOT}/ws/status`),
       ]);
       setCharacters(chars); setVehicles(vehs); setStorages(stores); setKills(killRows); setStats(statRows);
       setLeaderboard(leaders.items || []); setWeapons(weaponRows.items || []); setTimeline(timelineRows.items || []);
-      setSync(syncRows); setEvents(eventRows.slice().reverse()); setMapEntities(mapRows); setWsStatus(socketRows);
+      setSync(syncRows); setEvents(eventRows.slice().reverse()); setLiveMap(mapRows); setWsStatus(socketRows);
       setLastUpdated(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível carregar os dados.");
@@ -109,6 +108,13 @@ export function Dashboard() {
   }, []);
 
   useEffect(() => { load(); const timer = setInterval(() => load(true), 30000); return () => clearInterval(timer); }, [load]);
+  useEffect(() => {
+    const refreshLivePlayers = async () => {
+      try { setLiveMap(await api<Dict>(`${API_ROOT}/map/live-players`)); } catch { /* atualização geral exibirá o erro */ }
+    };
+    const timer = setInterval(refreshLivePlayers, 5000);
+    return () => clearInterval(timer);
+  }, []);
   useEffect(() => { const saved = localStorage.getItem("deadside-ws-token"); if (saved) setWsToken(saved); }, []);
   useEffect(() => () => sockets.current.forEach((socket) => socket.close()), []);
 
@@ -151,7 +157,7 @@ export function Dashboard() {
       </article>
       <article className="mini-map-card" onClick={() => setSection("map")}>
         <img src={`/api/proxy?path=${encodeURIComponent("/api/v1/maps/mirny/image")}`} alt="Mapa Mirny" />
-        <div><span>MAPA TÁTICO</span><strong>{mapEntities.characters?.length || 0} sinais posicionados</strong></div>
+        <div><span>JOGADORES AO VIVO</span><strong>{liveMap.count || 0} sinais ativos agora</strong></div>
       </article>
     </div>
     <div className="metric-grid">
@@ -183,25 +189,22 @@ export function Dashboard() {
   </>;
 
   const renderMap = () => {
-    const markerRows = [
-      ...(mapFilter !== "vehicles" ? (mapEntities.characters || []).map((item: Dict) => ({ ...item, kind: "character" })) : []),
-      ...(mapFilter !== "characters" ? (mapEntities.vehicles || []).map((item: Dict) => ({ ...item, kind: "vehicle" })) : []),
-    ].filter((item: Dict) => item.map_position?.inside_map);
+    const markerRows = (liveMap.players || []).map((item: Dict) => ({ ...item, kind: "character" })).filter((item: Dict) => item.map_position?.inside_map);
     return <div className="map-layout">
       <article className="panel map-panel">
-        <PanelHead title="Mapa operacional de Mirny" subtitle="Posições convertidas dos arquivos do servidor" action={<div className="segmented"><button className={mapFilter === "all" ? "active" : ""} onClick={() => setMapFilter("all")}>Todos</button><button className={mapFilter === "characters" ? "active" : ""} onClick={() => setMapFilter("characters")}>Jogadores</button><button className={mapFilter === "vehicles" ? "active" : ""} onClick={() => setMapFilter("vehicles")}>Veículos</button></div>} />
+        <PanelHead title="Jogadores ao vivo em Mirny" subtitle={`Somente arquivos FTP atualizados nos últimos ${liveMap.max_age_seconds || 120} segundos`} action={<Badge tone="good">atualiza a cada 5 s</Badge>} />
         <div className="map-viewport">
           <div className="map-canvas" style={{ transform: `scale(${mapZoom})` }}>
             <img src={`/api/proxy?path=${encodeURIComponent("/api/v1/maps/mirny/image")}`} alt="Mapa completo de Mirny" />
             {markerRows.map((item: Dict) => <button key={`${item.kind}-${item.id}`} className={`marker marker-${item.kind}`} style={{ left: `${item.map_position.x / 1280 * 100}%`, top: `${Math.abs(item.map_position.y) / 1408 * 100}%` }} title={`${item.kind === "character" ? "Personagem" : "Veículo"} ${item.id}`} onClick={() => setSelectedMarker(item)}><span>{item.kind === "character" ? "●" : "◆"}</span></button>)}
           </div>
           <div className="zoom"><button onClick={() => setMapZoom(z => Math.min(2, z + .2))}>+</button><button onClick={() => setMapZoom(z => Math.max(.7, z - .2))}>−</button><button onClick={() => setMapZoom(1)}>1:1</button></div>
-          <div className="map-legend"><span><i className="legend-player" />Personagem</span><span><i className="legend-vehicle" />Veículo</span><b>{markerRows.length} marcadores</b></div>
+          <div className="map-legend"><span><i className="legend-player" />Jogador ao vivo</span><b>{markerRows.length} online</b></div>
         </div>
       </article>
       <aside className="panel inspector">
         <PanelHead title="Inspetor" subtitle="Selecione um marcador" />
-        {selectedMarker ? <><div className={`entity-emblem ${selectedMarker.kind}`}>{selectedMarker.kind === "character" ? "◎" : "◆"}</div><h3>{selectedMarker.kind === "character" ? "Personagem" : "Veículo"}</h3><code>{selectedMarker.id}</code><dl className="facts stacked"><div><dt>Grid</dt><dd>{selectedMarker.map_position?.grid || "—"}</dd></div><div><dt>Mapa X</dt><dd>{fmtNumber(selectedMarker.map_position?.x)}</dd></div><div><dt>Mapa Y</dt><dd>{fmtNumber(selectedMarker.map_position?.y)}</dd></div><div><dt>Mundo X</dt><dd>{fmtNumber(selectedMarker.world_position?.x)}</dd></div><div><dt>Mundo Y</dt><dd>{fmtNumber(selectedMarker.world_position?.y)}</dd></div></dl></> : <Empty title="Nenhuma entidade selecionada" detail="Clique em um marcador para ver coordenadas e identificação." />}
+        {selectedMarker ? <><div className="entity-emblem">◎</div><h3>{selectedMarker.login || "Jogador"}</h3><code>{selectedMarker.player_id}</code><dl className="facts stacked"><div><dt>Grid</dt><dd>{selectedMarker.map_position?.grid || "—"}</dd></div><div><dt>Saúde</dt><dd>{fmtNumber(selectedMarker.health, "%")}</dd></div><div><dt>Atualizado há</dt><dd>{fmtNumber(selectedMarker.source_age_seconds, " s")}</dd></div><div><dt>Mapa X</dt><dd>{fmtNumber(selectedMarker.map_position?.x)}</dd></div><div><dt>Mapa Y</dt><dd>{fmtNumber(selectedMarker.map_position?.y)}</dd></div></dl></> : <Empty title="Nenhum jogador selecionado" detail="Clique em um marcador ao vivo para ver nome, saúde e posição." />}
       </aside>
     </div>;
   };

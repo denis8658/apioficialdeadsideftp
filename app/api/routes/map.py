@@ -1,4 +1,7 @@
 from fastapi import APIRouter, Depends
+from datetime import UTC, datetime, timedelta
+
+from fastapi import Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,3 +57,54 @@ async def entities(server_id: str, session: AsyncSession = Depends(get_session))
             return None
         return {"id": getattr(row, identifier), **service.position(row.pos_x, row.pos_y, row.pos_z)}
     return {"characters": [item for row in characters if (item := mapped(row, "player_id"))], "vehicles": [item for row in vehicles if (item := mapped(row, "vehicle_uid"))]}
+
+
+@router.get("/live-players")
+async def live_players(
+    server_id: str,
+    max_age_seconds: int | None = Query(default=None, ge=15, le=600),
+    session: AsyncSession = Depends(get_session),
+):
+    """Return only players whose source file is still changing on the FTP server."""
+    server = await resolve_server(session, server_id)
+    from app.core.config import get_settings
+
+    threshold = max_age_seconds or get_settings().live_player_max_age_seconds
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(seconds=threshold)
+    rows = (await session.scalars(
+        select(CharacterCurrent).where(
+            CharacterCurrent.server_id == server.id,
+            CharacterCurrent.source_modified_at.is_not(None),
+            CharacterCurrent.source_modified_at >= cutoff,
+            CharacterCurrent.pos_x.is_not(None),
+            CharacterCurrent.pos_y.is_not(None),
+        ).order_by(CharacterCurrent.source_modified_at.desc())
+    )).all()
+    service = MapService()
+    players = []
+    for row in rows:
+        position = service.position(row.pos_x, row.pos_y, row.pos_z)
+        if not position["map_position"]["inside_map"]:
+            continue
+        source_modified_at = row.source_modified_at
+        if source_modified_at and source_modified_at.tzinfo is None:
+            source_modified_at = source_modified_at.replace(tzinfo=UTC)
+        players.append({
+            "id": row.player_id,
+            "player_id": row.player_id,
+            "login": row.login,
+            "health": row.health,
+            "rot_yaw": row.rot_yaw,
+            "source_modified_at": source_modified_at,
+            "source_age_seconds": max(0, int((now - source_modified_at).total_seconds())) if source_modified_at else None,
+            "observed_at": row.observed_at,
+            **position,
+        })
+    return {
+        "players": players,
+        "count": len(players),
+        "max_age_seconds": threshold,
+        "live_detection": "ftp_source_modified_at",
+        "generated_at": now,
+    }

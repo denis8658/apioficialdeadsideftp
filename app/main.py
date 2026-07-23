@@ -45,6 +45,19 @@ async def lifespan(_: FastAPI):
     heartbeat = HeartbeatService(connection_manager)
     heartbeat.start()
     event_retention_service.start()
+    if settings.ftp_sync_autostart:
+        try:
+            from sqlalchemy import select
+            from app.db.models import Server
+            from app.db.session import SessionLocal
+            from app.services.ftp import ftp_sync_manager
+            async with SessionLocal() as session:
+                server_ids = (await session.scalars(select(Server.id).where(Server.enabled.is_(True)))).all()
+            for server_id in server_ids:
+                ftp_sync_manager.start(server_id)
+            logger.info("FTP polling autostarted for %d enabled server(s)", len(server_ids))
+        except Exception:
+            logger.exception("FTP polling autostart failed")
     try:
         yield
     finally:

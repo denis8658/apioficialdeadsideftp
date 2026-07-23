@@ -27,7 +27,7 @@ async def test_every_api_endpoint_returns_its_success_contract(tmp_path, monkeyp
     now = datetime(2026, 7, 21, 22, 15, tzinfo=UTC)
     async with sessions() as session:
         session.add(Server(id=server_id, slug="endpoint-test", name="Endpoint Test"))
-        session.add(CharacterCurrent(server_id=server_id, player_id="p1", login="Player", map_name="world_0", pos_x=10, pos_y=20, pos_z=30, inventory={}, raw_data={}, observed_at=now))
+        session.add(CharacterCurrent(server_id=server_id, player_id="p1", login="Player", map_name="world_0", pos_x=10, pos_y=20, pos_z=30, inventory={}, raw_data={}, source_modified_at=datetime.now(UTC), observed_at=now))
         session.add(CharacterPermanentData(server_id=server_id, player_id="p1", data={"achievements": []}, observed_at=now))
         session.add(VehicleCurrent(server_id=server_id, vehicle_uid="v1", display_name="UAZ", pos_x=40, pos_y=50, pos_z=60, rotation={}, inventory={}, metadata_json={}, raw_data={}, active=True, observed_at=now))
         session.add(StorageCurrent(server_id=server_id, data={"storage_id": storage_id, "player_id": "p1", "items": []}, observed_at=now))
@@ -86,6 +86,7 @@ async def test_every_api_endpoint_returns_its_success_contract(tmp_path, monkeyp
         ("POST", f"/api/v1/servers/{slug}/map/convert", {"json": {"x": 10, "y": 20, "z": 30}}, "POST /api/v1/servers/{server_id}/map/convert"),
         ("POST", f"/api/v1/servers/{slug}/map/reverse-convert", {"json": {"x": 640, "y": -896}}, "POST /api/v1/servers/{server_id}/map/reverse-convert"),
         ("GET", f"/api/v1/servers/{slug}/map/entities", None, "GET /api/v1/servers/{server_id}/map/entities"),
+        ("GET", f"/api/v1/servers/{slug}/map/live-players", None, "GET /api/v1/servers/{server_id}/map/live-players"),
         ("GET", f"/api/v1/servers/{slug}/kills", None, "GET /api/v1/servers/{server_id}/kills"),
         ("GET", f"/api/v1/servers/{slug}/kills/latest", None, "GET /api/v1/servers/{server_id}/kills/latest"),
         ("GET", f"/api/v1/servers/{slug}/kills/feed", None, "GET /api/v1/servers/{server_id}/kills/feed"),
