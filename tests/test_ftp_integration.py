@@ -14,6 +14,7 @@ from app.services.ftp import (
     RemoteEntry,
     discover_tree,
     parse_online_logins,
+    realtime_candidates,
     remaining_interval,
     remote_changed,
     stable_metadata,
@@ -127,6 +128,18 @@ def test_online_logins_follow_join_and_logout_order():
         b"[3]LogOnline: Player ltEOS OLD_PLAYER  has logged out by reason: LostConnection",
     ])
     assert parse_online_logins(content) == {"ODIO_-ETERNO"}
+
+
+def test_realtime_candidates_use_memory_metadata_after_bootstrap():
+    modified = datetime.now(UTC)
+    existing = RemoteEntry("/deathlogs/today.csv", 10, modified)
+    new_file = RemoteEntry("/deathlogs/tomorrow.csv", 5, modified)
+    cache = {}
+    assert realtime_candidates([existing, new_file], {existing.path}, cache) == [new_file]
+    cache[new_file.path] = (new_file.size, new_file.modified_at)
+    assert realtime_candidates([existing, new_file], {existing.path, new_file.path}, cache) == []
+    changed = RemoteEntry(existing.path, 11, modified)
+    assert realtime_candidates([changed], {existing.path}, cache) == [changed]
 
 
 @pytest.mark.asyncio

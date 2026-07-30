@@ -176,6 +176,25 @@ def remaining_interval(interval_seconds: float, cycle_started: float, now: float
     return max(0, interval_seconds - elapsed)
 
 
+def realtime_candidates(
+    entries: list[RemoteEntry],
+    known_paths: set[str],
+    metadata_cache: dict[str, tuple[int, datetime | None]],
+) -> list[RemoteEntry]:
+    candidates = []
+    for entry in entries:
+        signature = (entry.size, entry.modified_at)
+        previous = metadata_cache.get(entry.path)
+        if previous is None:
+            if entry.path in known_paths:
+                metadata_cache[entry.path] = signature
+            else:
+                candidates.append(entry)
+        elif previous != signature:
+            candidates.append(entry)
+    return candidates
+
+
 def parse_online_logins(content: bytes) -> set[str]:
     """Build current session state from safe join/logout markers in Deadside.log."""
     online: set[str] = set()
@@ -215,6 +234,7 @@ class FTPSyncManager:
         self._online_logins: dict[uuid.UUID, set[str]] = {}
         self._online_player_ids: dict[uuid.UUID, set[str]] = {}
         self._live_payloads: dict[uuid.UUID, dict[str, dict[str, Any]]] = {}
+        self._realtime_metadata: dict[uuid.UUID, dict[str, tuple[int, datetime | None]]] = {}
         self._realtime_last_success_at: dict[uuid.UUID, datetime] = {}
         self._realtime_cycle_duration_ms: dict[uuid.UUID, int] = {}
         self._statuses: dict[uuid.UUID, SyncStatus] = {}
@@ -423,15 +443,18 @@ class FTPSyncManager:
             if not entry.is_dir and categorize_path(entry.path) in dynamic_categories
         ][:self.settings.ftp_max_files_per_cycle]
         async with SessionLocal() as session:
+            paths = [entry.path for entry in files]
+            known_paths = set((await session.scalars(
+                select(RemoteFile.remote_path).where(
+                    RemoteFile.server_id == server_id,
+                    RemoteFile.remote_path.in_(paths),
+                )
+            )).all()) if paths else set()
+            metadata_cache = self._realtime_metadata.setdefault(server_id, {})
+            changed_files = realtime_candidates(files, known_paths, metadata_cache)
             importer = ZipImporter(session)
             with TemporaryDirectory(prefix="deadside-realtime-") as temp_dir:
-                for index, remote in enumerate(files):
-                    known = await session.scalar(select(RemoteFile).where(
-                        RemoteFile.server_id == server_id,
-                        RemoteFile.remote_path == remote.path,
-                    ))
-                    if not remote_changed(known, remote):
-                        continue
+                for index, remote in enumerate(changed_files):
                     await asyncio.sleep(self.settings.ftp_stability_delay_seconds)
                     stable = await client.stat(remote.path)
                     if not stable_metadata(remote, stable):
@@ -448,6 +471,7 @@ class FTPSyncManager:
                         remote.size,
                         remote.modified_at,
                     )
+                    metadata_cache[remote.path] = (remote.size, remote.modified_at)
 
     async def _character_directories(self, server_id: uuid.UUID, client: ReadOnlyFTPClient) -> list[str]:
         async with SessionLocal() as session:
