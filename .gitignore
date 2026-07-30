@@ -8,5 +8,7 @@ __pycache__/
 htmlcov/
 dist/
 build/
+!web/build/
+!web/build/sites-vite-plugin.ts
 *.egg-info/
 sample-data/
