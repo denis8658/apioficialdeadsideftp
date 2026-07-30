@@ -41,6 +41,7 @@ def test_password_is_secret_string():
 def test_default_incremental_refresh_target_is_half_a_second():
     settings = ftp_settings()
     assert settings.ftp_poll_interval_seconds == 0.5
+    assert settings.ftp_full_sync_interval_seconds == 60
     assert settings.ftp_live_position_interval_seconds == 0.5
     assert settings.ftp_stability_delay_seconds == 0.1
     assert "top-secret" not in repr(settings)
@@ -167,6 +168,7 @@ async def test_start_is_idempotent(monkeypatch):
     manager = FTPSyncManager()
     server_id = __import__("uuid").uuid4()
     monkeypatch.setattr(manager, "_poll", AsyncMock())
+    monkeypatch.setattr(manager, "_realtime_data", AsyncMock())
     monkeypatch.setattr(manager, "_live_positions", AsyncMock())
     monkeypatch.setattr(manager, "_broadcast_live_positions", AsyncMock())
     first = manager.start(server_id)
@@ -175,6 +177,8 @@ async def test_start_is_idempotent(monkeypatch):
     assert second["status"] == "already_running"
     manager._tasks[server_id].cancel()
     await asyncio.gather(manager._tasks[server_id], return_exceptions=True)
+    manager._realtime_tasks[server_id].cancel()
+    await asyncio.gather(manager._realtime_tasks[server_id], return_exceptions=True)
     manager._live_tasks[server_id].cancel()
     await asyncio.gather(manager._live_tasks[server_id], return_exceptions=True)
     manager._live_broadcast_tasks[server_id].cancel()
@@ -228,6 +232,40 @@ async def test_character_directories_use_discovered_world_folder(monkeypatch):
     ]))
     directories = await manager._character_directories(server_id, client)
     assert directories == ["/Deadside/Saved/actual1/characters1-9/world_0"]
+
+
+@pytest.mark.asyncio
+async def test_realtime_directories_target_only_dynamic_world_folders(monkeypatch):
+    manager = FTPSyncManager()
+    server_id = __import__("uuid").uuid4()
+    connection = SimpleNamespace(path_patterns={
+        "storages_path": "/saved/storages",
+        "vehicles_path": "/saved/vehicles",
+        "deathlogs_path": "/saved/deathlogs",
+    })
+    session = SimpleNamespace(
+        __aenter__=AsyncMock(),
+        __aexit__=AsyncMock(),
+        scalar=AsyncMock(return_value=connection),
+    )
+
+    class SessionContext:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, *_):
+            return None
+
+    monkeypatch.setattr("app.services.ftp.SessionLocal", SessionContext)
+    client = SimpleNamespace(list_dir=AsyncMock(side_effect=lambda root: [
+        RemoteEntry(f"{root}/world_0", 0, None, True),
+    ]))
+    directories = await manager._realtime_directories(server_id, client)
+    assert directories == [
+        "/saved/storages/world_0",
+        "/saved/vehicles/world_0",
+        "/saved/deathlogs/world_0",
+    ]
 
 
 def test_secret_does_not_appear_in_logs(caplog):

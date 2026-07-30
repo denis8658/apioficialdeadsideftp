@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     database_pool_recycle_seconds: int = Field(default=1800, ge=60)
     database_command_timeout_seconds: int = Field(default=30, ge=1)
     ftp_poll_interval_seconds: float = Field(default=0.5, ge=0.1, le=60.0)
+    ftp_full_sync_interval_seconds: float = Field(default=60.0, ge=5.0, le=3600.0)
     ftp_live_position_interval_seconds: float = Field(default=0.5, ge=0.1, le=5.0)
     ftp_sync_autostart: bool = True
     ftp_protocol: str = "ftp"
