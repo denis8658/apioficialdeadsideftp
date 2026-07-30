@@ -30,7 +30,7 @@ async def map_config(server_id: str, session: AsyncSession = Depends(get_session
     await resolve_server(session, server_id)
     service = MapService()
     s = service.settings
-    return {"calibration_name": service.calibration_name, "calibration_version": service.calibration_version, "calibration_status": service.calibration_status, "bounds": {"min_x": s.map_min_x, "max_x": s.map_max_x, "min_y": s.map_min_y, "max_y": s.map_max_y}, "origin": {"x": s.map_origin_x, "y": s.map_origin_y}, "unreal_units_per_map_unit": s.unreal_units_per_map_unit, "image": {"url": "/api/v1/maps/mirny/image", "width": 1280, "height": 1408}, "tiles": {"url_template": "/static/maps/mirny/tiles/map_{x}_{y}.png", "tile_size": 512, "columns": 3, "rows": 3, "content_width": 1280, "content_height": 1408}}
+    return {"calibration_name": service.calibration_name, "calibration_version": service.calibration_version, "calibration_status": service.calibration_status, "bounds": {"min_x": s.map_min_x, "max_x": s.map_max_x, "min_y": s.map_min_y, "max_y": s.map_max_y}, "origin": {"x": s.map_origin_x, "y": s.map_origin_y}, "unreal_units_per_map_unit": s.unreal_units_per_map_unit, "image": {"url": "/api/v1/maps/mirny/image?v=ds-info-lod1-20260730", "width": 1280, "height": 1408}, "tiles": {"url_template": "/static/maps/mirny/tiles/map_{x}_{y}.png?v=ds-info-lod1-20260730", "tile_size": 512, "columns": 3, "rows": 3, "content_width": 1280, "content_height": 1408}}
 
 
 @router.post("/convert")

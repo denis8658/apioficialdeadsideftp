@@ -8,6 +8,7 @@ type Section = "overview" | "map" | "characters" | "vehicles" | "storages" | "co
 const SERVER = "deadside-01";
 const API_ROOT = `/api/v1/servers/${SERVER}`;
 const WS_ROOT = "wss://apioficialdeadsideftp-production.up.railway.app/api/v1/servers/deadside-01/ws";
+const MAP_IMAGE_PATH = "/api/v1/maps/mirny/image?v=ds-info-lod1-20260730";
 
 const nav: { id: Section; label: string; glyph: string }[] = [
   { id: "overview", label: "Visão geral", glyph: "◫" },
@@ -186,7 +187,7 @@ export function Dashboard() {
         <div className="server-pulse"><i /><strong>{sync.connected ? "FTP conectado" : "FTP desconectado"}</strong><small>Último sucesso {fmtDate(sync.last_success_at)}</small></div>
       </article>
       <article className="mini-map-card" onClick={() => setSection("map")}>
-        <img src={`/api/proxy?path=${encodeURIComponent("/api/v1/maps/mirny/image")}`} alt="Mapa Mirny" />
+        <img src={`/api/proxy?path=${encodeURIComponent(MAP_IMAGE_PATH)}`} alt="Mapa Mirny" />
         <div><span>JOGADORES ONLINE</span><strong>{onlinePlayers.count || 0} conectados agora</strong></div>
       </article>
     </div>
@@ -229,7 +230,7 @@ export function Dashboard() {
         <PanelHead title="Jogadores ao vivo em Mirny" subtitle="Sessões confirmadas pelos eventos Join/Logout do log do servidor" action={<Badge tone="good">atualiza a cada 0,5 s</Badge>} />
         <div className="map-viewport">
           <div className="map-canvas" style={{ transform: `scale(${mapZoom})` }}>
-            <img src={`/api/proxy?path=${encodeURIComponent("/api/v1/maps/mirny/image")}`} alt="Mapa completo de Mirny" />
+            <img src={`/api/proxy?path=${encodeURIComponent(MAP_IMAGE_PATH)}`} alt="Mapa completo de Mirny" />
             {markerRows.map((item: Dict) => <button key={`${item.kind}-${item.id}`} className={`marker marker-${item.kind}`} style={{ left: `${item.map_position.x / 1280 * 100}%`, top: `${Math.abs(item.map_position.y) / 1408 * 100}%` }} title={`${item.kind === "character" ? "Personagem" : "Veículo"} ${item.id}`} onClick={() => setSelectedMarker(item)}><span>{item.kind === "character" ? "●" : "◆"}</span></button>)}
           </div>
           <div className="zoom"><button onClick={() => setMapZoom(z => Math.min(2, z + .2))}>+</button><button onClick={() => setMapZoom(z => Math.max(.7, z - .2))}>−</button><button onClick={() => setMapZoom(1)}>1:1</button></div>
