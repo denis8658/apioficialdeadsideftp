@@ -57,7 +57,6 @@ FTP_PASSWORD=sua-senha
 FTP_POLL_INTERVAL_SECONDS=0.5
 FTP_FULL_SYNC_INTERVAL_SECONDS=60
 FTP_LIVE_POSITION_INTERVAL_SECONDS=0.5
-FTP_REALTIME_STORAGE_BATCH_SIZE=5
 FTP_STABILITY_DELAY_SECONDS=0.1
 WEBSOCKET_JWT_SECRET=gere-um-segredo-aleatorio-forte
 ```
@@ -66,7 +65,7 @@ O Railway injeta `PORT`; não fixe esse valor em produção. O healthcheck de de
 
 O rate limit protege as mutações de FTP e sincronização. Ele é local ao processo; mantenha um worker por instância ou use um backend compartilhado, como Redis, antes de escalar horizontalmente.
 
-A coleta incremental tem alvo de 0,5 segundo. Apenas arquivos com tamanho ou data de modificação alterados são baixados e reprocessados. Personagens online, entradas/saídas e snapshots do mapa usam um monitor dedicado; veículos, storages e deathlogs usam outro monitor que lista somente suas pastas `world_*`. A descoberta completa da árvore roda separadamente, por padrão a cada 60 segundos, sem bloquear os dados de gameplay em tempo real. Se um ciclo dinâmico durar mais de 0,5 segundo, o seguinte começa imediatamente, sem sobreposição.
+A coleta incremental de gameplay tem alvo de 0,5 segundo. Apenas arquivos com tamanho ou data de modificação alterados são baixados e reprocessados. Personagens online, entradas/saídas, snapshots do mapa, veículos e deathlogs usam um monitor dedicado. Storages e categorias administrativas permanecem na sincronização completa, por padrão a cada 60 segundos, porque o servidor regrava centenas de saves e não consegue entregá-los integralmente duas vezes por segundo. Se um ciclo dinâmico durar mais de 0,5 segundo, o seguinte começa imediatamente, sem sobreposição.
 
 ## CORS, navegador e proxy
 

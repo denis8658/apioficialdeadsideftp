@@ -44,7 +44,6 @@ def test_default_incremental_refresh_target_is_half_a_second():
     assert settings.ftp_poll_interval_seconds == 0.5
     assert settings.ftp_full_sync_interval_seconds == 60
     assert settings.ftp_live_position_interval_seconds == 0.5
-    assert settings.ftp_realtime_storage_batch_size == 5
     assert settings.ftp_stability_delay_seconds == 0.1
     assert "top-secret" not in repr(settings)
 
