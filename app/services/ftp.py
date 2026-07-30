@@ -235,6 +235,7 @@ class FTPSyncManager:
         self._online_player_ids: dict[uuid.UUID, set[str]] = {}
         self._live_payloads: dict[uuid.UUID, dict[str, dict[str, Any]]] = {}
         self._realtime_metadata: dict[uuid.UUID, dict[str, tuple[int, datetime | None]]] = {}
+        self._storage_cursors: dict[uuid.UUID, int] = {}
         self._realtime_last_success_at: dict[uuid.UUID, datetime] = {}
         self._realtime_cycle_duration_ms: dict[uuid.UUID, int] = {}
         self._statuses: dict[uuid.UUID, SyncStatus] = {}
@@ -452,10 +453,29 @@ class FTPSyncManager:
             )).all()) if paths else set()
             metadata_cache = self._realtime_metadata.setdefault(server_id, {})
             changed_files = realtime_candidates(files, known_paths, metadata_cache)
+            critical_files = [
+                entry for entry in changed_files
+                if categorize_path(entry.path) in {FileCategory.vehicle, FileCategory.deathlog}
+            ]
+            storage_files = [
+                entry for entry in changed_files
+                if categorize_path(entry.path) == FileCategory.storage
+            ]
+            if storage_files:
+                cursor = self._storage_cursors.get(server_id, 0) % len(storage_files)
+                rotated = storage_files[cursor:] + storage_files[:cursor]
+                storage_batch = rotated[:self.settings.ftp_realtime_storage_batch_size]
+                self._storage_cursors[server_id] = (
+                    cursor + len(storage_batch)
+                ) % len(storage_files)
+            else:
+                storage_batch = []
+            selected_files = critical_files + storage_batch
             importer = ZipImporter(session)
             with TemporaryDirectory(prefix="deadside-realtime-") as temp_dir:
-                for index, remote in enumerate(changed_files):
+                if selected_files:
                     await asyncio.sleep(self.settings.ftp_stability_delay_seconds)
+                for index, remote in enumerate(selected_files):
                     stable = await client.stat(remote.path)
                     if not stable_metadata(remote, stable):
                         continue
