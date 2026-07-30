@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     database_pool_timeout_seconds: int = Field(default=30, ge=1)
     database_pool_recycle_seconds: int = Field(default=1800, ge=60)
     database_command_timeout_seconds: int = Field(default=30, ge=1)
-    ftp_poll_interval_seconds: int = Field(default=5, ge=1)
+    ftp_poll_interval_seconds: float = Field(default=0.5, ge=0.1, le=60.0)
     ftp_live_position_interval_seconds: float = Field(default=0.5, ge=0.1, le=5.0)
     ftp_sync_autostart: bool = True
     ftp_protocol: str = "ftp"
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     ftp_max_concurrent_downloads: int = Field(default=2, ge=1)
     ftp_max_files_per_cycle: int = Field(default=500, ge=1)
     ftp_max_file_size_mb: int = Field(default=100, ge=1)
-    ftp_stability_delay_seconds: float = Field(default=0.75, ge=0.5, le=1.0)
+    ftp_stability_delay_seconds: float = Field(default=0.1, ge=0.05, le=1.0)
     kills_leaderboard_min_kills_for_kd: int = Field(default=3, ge=1)
     websocket_enabled: bool = True
     websocket_heartbeat_interval_seconds: float = Field(default=25, gt=0)

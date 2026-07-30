@@ -122,7 +122,7 @@ export function Dashboard() {
       try { setOnlinePlayers(await api<Dict>(`${API_ROOT}/players/online`)); } catch { /* atualização geral exibirá o erro */ }
     };
     refreshOnlinePlayers();
-    const timer = setInterval(refreshOnlinePlayers, 2000);
+    const timer = setInterval(refreshOnlinePlayers, 500);
     return () => clearInterval(timer);
   }, []);
   useEffect(() => { const saved = localStorage.getItem("deadside-ws-token"); if (saved) setWsToken(saved); }, []);
@@ -146,6 +146,18 @@ export function Dashboard() {
               setLiveMap((current: Dict) => {
                 const players = [...(current.players || []).filter((item: Dict) => item.player_id !== event.data.player_id), event.data];
                 return { ...current, players, count: players.length, generated_at: event.published_at };
+              });
+            } else if (event.event === "player.online" && event.data?.login) {
+              setOnlinePlayers((current: Dict) => {
+                const players = [...(current.players || []).filter((item: Dict) => item.login !== event.data.login), {
+                  login: event.data.login, online: true, player_id: null, has_character_data: false, has_position: false,
+                }];
+                return { ...current, players, count: players.length, pending_character_count: players.filter((item: Dict) => !item.player_id).length };
+              });
+            } else if (event.event === "player.offline" && event.data?.login) {
+              setOnlinePlayers((current: Dict) => {
+                const players = (current.players || []).filter((item: Dict) => item.login !== event.data.login);
+                return { ...current, players, count: players.length, pending_character_count: players.filter((item: Dict) => !item.player_id).length };
               });
             } else if (!event.event?.startsWith("system.")) load(true);
           }

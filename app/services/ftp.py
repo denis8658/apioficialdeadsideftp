@@ -171,6 +171,11 @@ def stable_metadata(before: RemoteEntry, after: RemoteEntry) -> bool:
     return before.size == after.size and before.modified_at == after.modified_at
 
 
+def remaining_interval(interval_seconds: float, cycle_started: float, now: float | None = None) -> float:
+    elapsed = (time.monotonic() if now is None else now) - cycle_started
+    return max(0, interval_seconds - elapsed)
+
+
 def parse_online_logins(content: bytes) -> set[str]:
     """Build current session state from safe join/logout markers in Deadside.log."""
     online: set[str] = set()
@@ -217,6 +222,7 @@ class FTPSyncManager:
         result = asdict(state)
         result["state"] = "running" if state.running else "stopped"
         result["connection"] = "connected" if state.connected else "disconnected"
+        result["data_refresh_interval_seconds"] = self.settings.ftp_poll_interval_seconds
         result["live_position_monitor"] = "running" if server_id in self._live_tasks else "stopped"
         result["live_position_interval_seconds"] = self.settings.ftp_live_position_interval_seconds
         result["websocket_snapshot_interval_seconds"] = self.settings.ftp_live_position_interval_seconds
@@ -350,13 +356,14 @@ class FTPSyncManager:
     async def _poll(self, server_id: uuid.UUID):
         try:
             while True:
+                cycle_started = time.monotonic()
                 for attempt in range(self.settings.ftp_max_retries):
                     try:
                         await self.run_once(server_id, trigger="polling")
                         break
                     except FTPIntegrationError:
                         await asyncio.sleep(self.settings.ftp_retry_base_seconds * (2 ** attempt))
-                await asyncio.sleep(self.settings.ftp_poll_interval_seconds)
+                await asyncio.sleep(remaining_interval(self.settings.ftp_poll_interval_seconds, cycle_started))
         except asyncio.CancelledError:
             raise
         finally:
@@ -414,8 +421,36 @@ class FTPSyncManager:
 
     async def _refresh_online_sessions(self, server_id: uuid.UUID, client: ReadOnlyFTPClient, log_path: str):
         content = await self._download_bytes(client, log_path, "deadside-log-")
-        self._online_logins[server_id] = parse_online_logins(content)
+        previous = self._online_logins.get(server_id, set())
+        current = parse_online_logins(content)
+        self._online_logins[server_id] = current
         await self._refresh_online_player_ids(server_id)
+        published_at = datetime.now(UTC).isoformat()
+        transitions = [
+            *((login, "player.online", True) for login in current - previous),
+            *((login, "player.offline", False) for login in previous - current),
+        ]
+        for login, event_name, online in transitions:
+            payload = {
+                "event_id": str(uuid.uuid4()),
+                "event": event_name,
+                "server_id": str(server_id),
+                "occurred_at": published_at,
+                "published_at": published_at,
+                "entity_type": "player",
+                "entity_id": login,
+                "source": "deadside_log_live_monitor",
+                "metadata": {
+                    "ephemeral": True,
+                    "interval_seconds": self.settings.ftp_live_position_interval_seconds,
+                },
+                "data": {"login": login, "online": online},
+            }
+            await asyncio.gather(
+                connection_manager.broadcast_to_channel(str(server_id), "map", payload),
+                connection_manager.broadcast_to_channel(str(server_id), "events", payload),
+                return_exceptions=True,
+            )
 
     async def _ingest_live_character(self, server_id: uuid.UUID, client: ReadOnlyFTPClient, remote: RemoteEntry):
         if remote.size > self.settings.ftp_max_file_size_mb * 1024 * 1024:

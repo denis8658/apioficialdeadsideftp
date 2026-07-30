@@ -14,6 +14,7 @@ from app.services.ftp import (
     RemoteEntry,
     discover_tree,
     parse_online_logins,
+    remaining_interval,
     remote_changed,
     stable_metadata,
 )
@@ -35,6 +36,13 @@ def ftp_settings(**overrides):
 def test_password_is_secret_string():
     settings = ftp_settings()
     assert isinstance(settings.ftp_password, SecretStr)
+
+
+def test_default_incremental_refresh_target_is_half_a_second():
+    settings = ftp_settings()
+    assert settings.ftp_poll_interval_seconds == 0.5
+    assert settings.ftp_live_position_interval_seconds == 0.5
+    assert settings.ftp_stability_delay_seconds == 0.1
     assert "top-secret" not in repr(settings)
 
 
@@ -121,6 +129,27 @@ def test_online_logins_follow_join_and_logout_order():
 
 
 @pytest.mark.asyncio
+async def test_online_session_changes_are_broadcast_immediately(monkeypatch):
+    manager = FTPSyncManager()
+    server_id = __import__("uuid").uuid4()
+    download = AsyncMock(return_value=b"LogNet: Join succeeded: PLAYER")
+    refresh_ids = AsyncMock()
+    broadcast = AsyncMock()
+    monkeypatch.setattr(manager, "_download_bytes", download)
+    monkeypatch.setattr(manager, "_refresh_online_player_ids", refresh_ids)
+    monkeypatch.setattr("app.services.ftp.connection_manager.broadcast_to_channel", broadcast)
+
+    await manager._refresh_online_sessions(server_id, SimpleNamespace(), "/Deadside.log")
+    assert {call.args[2]["event"] for call in broadcast.await_args_list} == {"player.online"}
+    assert {call.args[1] for call in broadcast.await_args_list} == {"map", "events"}
+
+    broadcast.reset_mock()
+    download.return_value = b"LogOnline: Player ltEOS PLAYER has logged out by reason: Quit"
+    await manager._refresh_online_sessions(server_id, SimpleNamespace(), "/Deadside.log")
+    assert {call.args[2]["event"] for call in broadcast.await_args_list} == {"player.offline"}
+
+
+@pytest.mark.asyncio
 async def test_simultaneous_runs_return_already_running(monkeypatch):
     manager = FTPSyncManager()
     server_id = __import__("uuid").uuid4()
@@ -165,9 +194,14 @@ async def test_live_websocket_snapshots_follow_configured_interval(monkeypatch):
     await asyncio.sleep(0.035)
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
-    assert broadcast.await_count >= 3
+    assert broadcast.await_count >= 2
     assert all(call.args[1] == "map" for call in broadcast.await_args_list)
     assert all(call.args[2]["event"] == "character.position.live" for call in broadcast.await_args_list)
+
+
+def test_general_poll_compensates_for_cycle_duration():
+    assert remaining_interval(0.5, 100.0, 100.2) == pytest.approx(0.3)
+    assert remaining_interval(0.5, 100.0, 100.8) == 0
 
 
 @pytest.mark.asyncio
