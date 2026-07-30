@@ -439,10 +439,26 @@ class FTPSyncManager:
         entries: list[RemoteEntry],
     ):
         dynamic_categories = {FileCategory.vehicle, FileCategory.deathlog}
-        files = [
+        dynamic_files = [
             entry for entry in entries
             if not entry.is_dir and categorize_path(entry.path) in dynamic_categories
-        ][:self.settings.ftp_max_files_per_cycle]
+        ]
+        vehicle_files = [
+            entry for entry in dynamic_files
+            if categorize_path(entry.path) == FileCategory.vehicle
+        ]
+        deathlog_files = [
+            entry for entry in dynamic_files
+            if categorize_path(entry.path) == FileCategory.deathlog
+        ]
+        latest_deathlog = max(
+            deathlog_files,
+            key=lambda entry: PurePosixPath(entry.path).name,
+            default=None,
+        )
+        files = (vehicle_files + ([latest_deathlog] if latest_deathlog else []))[
+            :self.settings.ftp_max_files_per_cycle
+        ]
         async with SessionLocal() as session:
             paths = [entry.path for entry in files]
             known_paths = set((await session.scalars(
