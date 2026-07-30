@@ -168,7 +168,6 @@ async def test_start_is_idempotent(monkeypatch):
     manager = FTPSyncManager()
     server_id = __import__("uuid").uuid4()
     monkeypatch.setattr(manager, "_poll", AsyncMock())
-    monkeypatch.setattr(manager, "_realtime_data", AsyncMock())
     monkeypatch.setattr(manager, "_live_positions", AsyncMock())
     monkeypatch.setattr(manager, "_broadcast_live_positions", AsyncMock())
     first = manager.start(server_id)
@@ -177,8 +176,6 @@ async def test_start_is_idempotent(monkeypatch):
     assert second["status"] == "already_running"
     manager._tasks[server_id].cancel()
     await asyncio.gather(manager._tasks[server_id], return_exceptions=True)
-    manager._realtime_tasks[server_id].cancel()
-    await asyncio.gather(manager._realtime_tasks[server_id], return_exceptions=True)
     manager._live_tasks[server_id].cancel()
     await asyncio.gather(manager._live_tasks[server_id], return_exceptions=True)
     manager._live_broadcast_tasks[server_id].cancel()

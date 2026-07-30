@@ -210,7 +210,6 @@ class FTPSyncManager:
         self.settings = get_settings()
         self._locks: dict[uuid.UUID, asyncio.Lock] = {}
         self._tasks: dict[uuid.UUID, asyncio.Task] = {}
-        self._realtime_tasks: dict[uuid.UUID, asyncio.Task] = {}
         self._live_tasks: dict[uuid.UUID, asyncio.Task] = {}
         self._live_broadcast_tasks: dict[uuid.UUID, asyncio.Task] = {}
         self._online_logins: dict[uuid.UUID, set[str]] = {}
@@ -227,7 +226,7 @@ class FTPSyncManager:
         result["connection"] = "connected" if state.connected else "disconnected"
         result["data_refresh_interval_seconds"] = self.settings.ftp_poll_interval_seconds
         result["full_sync_interval_seconds"] = self.settings.ftp_full_sync_interval_seconds
-        result["realtime_data_monitor"] = "running" if server_id in self._realtime_tasks else "stopped"
+        result["realtime_data_monitor"] = "running" if server_id in self._live_tasks else "stopped"
         result["realtime_last_success_at"] = self._realtime_last_success_at.get(server_id)
         result["realtime_cycle_duration_ms"] = self._realtime_cycle_duration_ms.get(server_id)
         result["live_position_monitor"] = "running" if server_id in self._live_tasks else "stopped"
@@ -450,38 +449,6 @@ class FTPSyncManager:
                         remote.modified_at,
                     )
 
-    async def _realtime_data(self, server_id: uuid.UUID):
-        """Poll gameplay data directories without traversing the entire FTP tree."""
-        try:
-            while True:
-                try:
-                    async with ReadOnlyFTPClient(self.settings) as client:
-                        directories = await self._realtime_directories(server_id, client)
-                        while True:
-                            cycle_started = time.monotonic()
-                            entries = []
-                            for directory in directories:
-                                entries.extend(await client.list_dir(directory))
-                            await self._ingest_realtime_entries(server_id, client, entries)
-                            self._realtime_cycle_duration_ms[server_id] = round(
-                                (time.monotonic() - cycle_started) * 1000
-                            )
-                            self._realtime_last_success_at[server_id] = datetime.now(UTC)
-                            await asyncio.sleep(remaining_interval(
-                                self.settings.ftp_poll_interval_seconds,
-                                cycle_started,
-                            ))
-                except FTPIntegrationError as exc:
-                    logger.warning("Realtime FTP monitor reconnecting: %s", exc.safe_message)
-                    await asyncio.sleep(self.settings.ftp_retry_base_seconds)
-                except Exception:
-                    logger.exception("Realtime FTP monitor failed; reconnecting")
-                    await asyncio.sleep(self.settings.ftp_retry_base_seconds)
-        except asyncio.CancelledError:
-            raise
-        finally:
-            self._realtime_tasks.pop(server_id, None)
-
     async def _character_directories(self, server_id: uuid.UUID, client: ReadOnlyFTPClient) -> list[str]:
         async with SessionLocal() as session:
             connection = await session.scalar(select(FTPConnection).where(FTPConnection.server_id == server_id))
@@ -635,6 +602,7 @@ class FTPSyncManager:
                 try:
                     async with ReadOnlyFTPClient(self.settings) as client:
                         directories = await self._character_directories(server_id, client)
+                        realtime_directories = await self._realtime_directories(server_id, client)
                         log_path = await self._current_log_path(server_id, client)
                         previous_log_metadata: tuple[int, datetime | None] | None = None
                         bootstrap_characters = True
@@ -662,6 +630,14 @@ class FTPSyncManager:
                             if bootstrap_characters:
                                 bootstrap_characters = False
                                 await self._refresh_online_player_ids(server_id)
+                            realtime_entries = []
+                            for directory in realtime_directories:
+                                realtime_entries.extend(await client.list_dir(directory))
+                            await self._ingest_realtime_entries(server_id, client, realtime_entries)
+                            self._realtime_cycle_duration_ms[server_id] = round(
+                                (time.monotonic() - cycle_started) * 1000
+                            )
+                            self._realtime_last_success_at[server_id] = datetime.now(UTC)
                             elapsed = time.monotonic() - cycle_started
                             await asyncio.sleep(max(0, self.settings.ftp_live_position_interval_seconds - elapsed))
                 except FTPIntegrationError as exc:
@@ -683,7 +659,6 @@ class FTPSyncManager:
             return {"status": "already_running", **self.status(server_id)}
         self._statuses.setdefault(server_id, SyncStatus()).running = True
         self._tasks[server_id] = asyncio.create_task(self._poll(server_id), name=f"ftp-sync-{server_id}")
-        self._realtime_tasks[server_id] = asyncio.create_task(self._realtime_data(server_id), name=f"ftp-realtime-{server_id}")
         self._live_tasks[server_id] = asyncio.create_task(self._live_positions(server_id), name=f"ftp-live-{server_id}")
         self._live_broadcast_tasks[server_id] = asyncio.create_task(self._broadcast_live_positions(server_id), name=f"ws-live-{server_id}")
         return {"status": "started", **self.status(server_id)}
@@ -693,9 +668,6 @@ class FTPSyncManager:
         if task is None:
             return {"status": "already_stopped", **self.status(server_id)}
         task.cancel()
-        realtime_task = self._realtime_tasks.get(server_id)
-        if realtime_task is not None:
-            realtime_task.cancel()
         live_task = self._live_tasks.get(server_id)
         if live_task is not None:
             live_task.cancel()
@@ -704,7 +676,6 @@ class FTPSyncManager:
             broadcast_task.cancel()
         await asyncio.gather(
             task,
-            *([realtime_task] if realtime_task is not None else []),
             *([live_task] if live_task is not None else []),
             *([broadcast_task] if broadcast_task is not None else []),
             return_exceptions=True,
