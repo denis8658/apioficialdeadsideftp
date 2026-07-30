@@ -10,6 +10,7 @@ from app.db.session import get_session
 from app.services.map_service import MapService
 
 characters_router = APIRouter(prefix="/servers/{server_id}/characters", tags=["characters"])
+players_router = APIRouter(prefix="/servers/{server_id}/players", tags=["players"])
 vehicles_router = APIRouter(prefix="/servers/{server_id}/vehicles", tags=["vehicles"])
 storages_router = APIRouter(prefix="/servers/{server_id}/storages", tags=["storages"])
 
@@ -26,6 +27,48 @@ def _entity(model, map_service: MapService) -> dict:
         result["source_age_seconds"] = age
         result["position_freshness"] = "fresh" if age <= 15 else "delayed" if age <= 120 else "stale"
     return result
+
+
+@players_router.get("/online")
+async def online_players(server_id: str, session: AsyncSession = Depends(get_session)):
+    """Return all log-confirmed online sessions, even before a save is available."""
+    server = await resolve_server(session, server_id)
+    from app.services.ftp import ftp_sync_manager
+
+    logins = ftp_sync_manager.online_logins(server.id)
+    rows = [] if not logins else (await session.scalars(
+        select(CharacterCurrent).where(
+            CharacterCurrent.server_id == server.id,
+            CharacterCurrent.login.in_(logins),
+        )
+    )).all()
+    characters_by_login = {row.login: row for row in rows if row.login}
+    now = datetime.now(UTC)
+    players = []
+    for login in sorted(logins, key=str.casefold):
+        row = characters_by_login.get(login)
+        observed_at = row.observed_at if row else None
+        if observed_at and observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=UTC)
+        players.append({
+            "login": login,
+            "online": True,
+            "player_id": row.player_id if row else None,
+            "has_character_data": row is not None,
+            "has_position": bool(row and row.pos_x is not None and row.pos_y is not None),
+            "health": row.health if row else None,
+            "observed_at": observed_at,
+            "source_age_seconds": max(0, round((now - observed_at).total_seconds(), 1)) if observed_at else None,
+        })
+    identified_count = sum(player["player_id"] is not None for player in players)
+    return {
+        "players": players,
+        "count": len(players),
+        "identified_count": identified_count,
+        "pending_character_count": len(players) - identified_count,
+        "live_detection": "deadside_log_join_logout",
+        "generated_at": now,
+    }
 
 
 @characters_router.get("")

@@ -27,7 +27,7 @@ const endpointCatalog = [
   ["Últimas kills", "GET", `${API_ROOT}/kills/latest`], ["Feed", "GET", `${API_ROOT}/kills/feed`], ["Estatísticas", "GET", `${API_ROOT}/kills/statistics`],
   ["Leaderboard", "GET", `${API_ROOT}/kills/leaderboard`], ["Armas", "GET", `${API_ROOT}/kills/weapons`], ["Timeline", "GET", `${API_ROOT}/kills/timeline`],
   ["GeoJSON", "GET", `${API_ROOT}/kills/geojson`], ["Heatmap", "GET", `${API_ROOT}/kills/heatmap`], ["Mapa config", "GET", `${API_ROOT}/map/config`],
-  ["Entidades do mapa", "GET", `${API_ROOT}/map/entities`], ["Jogadores ao vivo", "GET", `${API_ROOT}/map/live-players`], ["WebSocket status", "GET", `${API_ROOT}/ws/status`], ["Eventos", "GET", `${API_ROOT}/events`],
+  ["Entidades do mapa", "GET", `${API_ROOT}/map/entities`], ["Jogadores online", "GET", `${API_ROOT}/players/online`], ["Jogadores no mapa", "GET", `${API_ROOT}/map/live-players`], ["WebSocket status", "GET", `${API_ROOT}/ws/status`], ["Eventos", "GET", `${API_ROOT}/events`],
   ["Testar FTP", "POST", `${API_ROOT}/ftp/test`], ["Descobrir FTP", "POST", `${API_ROOT}/ftp/discover`],
   ["Sincronizar", "POST", `${API_ROOT}/sync/run`], ["Iniciar polling", "POST", `${API_ROOT}/sync/start`], ["Parar polling", "POST", `${API_ROOT}/sync/stop`],
 ];
@@ -76,6 +76,7 @@ export function Dashboard() {
   const [stats, setStats] = useState<Dict>({});
   const [sync, setSync] = useState<Dict>({});
   const [wsStatus, setWsStatus] = useState<Dict>({});
+  const [onlinePlayers, setOnlinePlayers] = useState<Dict>({ players: [], count: 0, pending_character_count: 0 });
   const [liveMap, setLiveMap] = useState<Dict>({ players: [], count: 0, position_poll_interval_seconds: 0.5 });
   const [mapZoom, setMapZoom] = useState(1);
   const [selectedMarker, setSelectedMarker] = useState<Dict | null>(null);
@@ -92,15 +93,15 @@ export function Dashboard() {
     quiet ? setRefreshing(true) : setLoading(true);
     setError("");
     try {
-      const [chars, vehs, stores, killRows, statRows, leaders, weaponRows, timelineRows, syncRows, eventRows, mapRows, socketRows] = await Promise.all([
+      const [chars, vehs, stores, killRows, statRows, leaders, weaponRows, timelineRows, syncRows, eventRows, onlineRows, mapRows, socketRows] = await Promise.all([
         api<Dict[]>(`${API_ROOT}/characters?limit=1000`), api<Dict[]>(`${API_ROOT}/vehicles?limit=1000`), api<Dict[]>(`${API_ROOT}/storages?limit=1000`),
         api<Dict[]>(`${API_ROOT}/kills?limit=1000`), api<Dict>(`${API_ROOT}/kills/statistics`), api<Dict>(`${API_ROOT}/kills/leaderboard?limit=100`),
         api<Dict>(`${API_ROOT}/kills/weapons`), api<Dict>(`${API_ROOT}/kills/timeline?interval=day`), api<Dict>(`${API_ROOT}/sync/status`),
-        api<Dict[]>(`${API_ROOT}/events?limit=100`), api<Dict>(`${API_ROOT}/map/live-players`), api<Dict>(`${API_ROOT}/ws/status`),
+        api<Dict[]>(`${API_ROOT}/events?limit=100`), api<Dict>(`${API_ROOT}/players/online`), api<Dict>(`${API_ROOT}/map/live-players`), api<Dict>(`${API_ROOT}/ws/status`),
       ]);
       setCharacters(chars); setVehicles(vehs); setStorages(stores); setKills(killRows); setStats(statRows);
       setLeaderboard(leaders.items || []); setWeapons(weaponRows.items || []); setTimeline(timelineRows.items || []);
-      setSync(syncRows); setEvents(eventRows.slice().reverse()); setLiveMap(mapRows); setWsStatus(socketRows);
+      setSync(syncRows); setEvents(eventRows.slice().reverse()); setOnlinePlayers(onlineRows); setLiveMap(mapRows); setWsStatus(socketRows);
       setLastUpdated(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível carregar os dados.");
@@ -114,6 +115,14 @@ export function Dashboard() {
     };
     refreshLivePlayers();
     const timer = setInterval(refreshLivePlayers, 500);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    const refreshOnlinePlayers = async () => {
+      try { setOnlinePlayers(await api<Dict>(`${API_ROOT}/players/online`)); } catch { /* atualização geral exibirá o erro */ }
+    };
+    refreshOnlinePlayers();
+    const timer = setInterval(refreshOnlinePlayers, 2000);
     return () => clearInterval(timer);
   }, []);
   useEffect(() => { const saved = localStorage.getItem("deadside-ws-token"); if (saved) setWsToken(saved); }, []);
@@ -166,7 +175,7 @@ export function Dashboard() {
       </article>
       <article className="mini-map-card" onClick={() => setSection("map")}>
         <img src={`/api/proxy?path=${encodeURIComponent("/api/v1/maps/mirny/image")}`} alt="Mapa Mirny" />
-        <div><span>JOGADORES AO VIVO</span><strong>{liveMap.count || 0} sinais ativos agora</strong></div>
+        <div><span>JOGADORES ONLINE</span><strong>{onlinePlayers.count || 0} conectados agora</strong></div>
       </article>
     </div>
     <div className="metric-grid">
@@ -190,6 +199,10 @@ export function Dashboard() {
         <PanelHead title="Kill feed" subtitle="Últimos confrontos" />
         <div className="kill-feed">{kills.slice(0, 5).map(kill => <div key={kill.id}><span className="kill-dot">✦</span><p><b>{kill.killer_name || "Desconhecido"}</b> eliminou <b>{kill.victim_name || "Desconhecido"}</b><small>{kill.weapon_name || "arma desconhecida"} · {fmtNumber(kill.distance_meters, " m")}</small></p></div>)}{!kills.length && <Empty title="Sem kills PvP" detail="O deathlog ainda não possui confrontos." />}</div>
       </article>
+      <article className="panel">
+        <PanelHead title="Jogadores online" subtitle={`${onlinePlayers.count || 0} sessões confirmadas pelo servidor`} />
+        <div className="leaderboard">{(onlinePlayers.players || []).slice(0, 8).map((player: Dict) => <div key={player.login}><b className="rank">●</b><span><strong>{player.login}</strong><small>{player.has_character_data ? player.has_position ? "jogando no mapa" : "personagem carregado" : "entrando no jogo"}</small></span><Badge tone={player.has_position ? "good" : "warn"}>{player.has_position ? "ativo" : "carregando"}</Badge></div>)}{!onlinePlayers.count && <Empty title="Servidor vazio" detail="Nenhuma sessão online foi identificada no log." />}</div>
+      </article>
       <article className="panel span-2">
         <PanelHead title="Tendência de combate" subtitle="Kills agrupadas por dia" />
         <div className="trend"><SparkBars values={timeline.map(x => x.kills)} /><div className="trend-labels"><span>{timeline[0]?.bucket || "Início"}</span><span>{timeline.at(-1)?.bucket || "Agora"}</span></div></div>
@@ -208,7 +221,7 @@ export function Dashboard() {
             {markerRows.map((item: Dict) => <button key={`${item.kind}-${item.id}`} className={`marker marker-${item.kind}`} style={{ left: `${item.map_position.x / 1280 * 100}%`, top: `${Math.abs(item.map_position.y) / 1408 * 100}%` }} title={`${item.kind === "character" ? "Personagem" : "Veículo"} ${item.id}`} onClick={() => setSelectedMarker(item)}><span>{item.kind === "character" ? "●" : "◆"}</span></button>)}
           </div>
           <div className="zoom"><button onClick={() => setMapZoom(z => Math.min(2, z + .2))}>+</button><button onClick={() => setMapZoom(z => Math.max(.7, z - .2))}>−</button><button onClick={() => setMapZoom(1)}>1:1</button></div>
-          <div className="map-legend"><span><i className="legend-player" />Jogador ao vivo</span><b>{markerRows.length} online</b></div>
+          <div className="map-legend"><span><i className="legend-player" />Jogador no mapa</span><b>{markerRows.length} no mapa · {onlinePlayers.count || 0} online</b></div>
         </div>
       </article>
       <aside className="panel inspector">

@@ -407,6 +407,7 @@ Todos os endpoints abaixo são derivados dos mesmos CSVs de deathlog. `{player_i
 
 | Método e endpoint | Resultado |
 |---|---|
+| `GET /api/v1/servers/{server_id}/players/online` | Todas as sessões online confirmadas pelo `Deadside.log`, inclusive jogadores que ainda não possuem save, ID ou posição. |
 | `GET /api/v1/servers/{server_id}/players/{player_id}/kills` | Todas as kills PvP realizadas pelo jogador, mais recentes primeiro. |
 | `GET /api/v1/servers/{server_id}/players/{player_id}/deaths` | Mortes do jogador, incluindo os tipos presentes no deathlog. |
 | `GET /api/v1/servers/{server_id}/players/{player_id}/combat-stats` | `kills`, `deaths`, `suicides`, `npc_kills`, `deaths_by_npc`, mortes ambientais, K/D, invicto, distâncias e arma favorita. |
@@ -469,7 +470,7 @@ Fluxo recomendado para uma instalação nova:
 
 ## Segurança e limitações
 
-A API não declara jogadores online com base apenas na idade do arquivo. O endpoint `map/live-players` reconstrói as sessões pelos eventos de entrada e saída do `Deadside.log`; `source_age_seconds` informa separadamente a idade da última amostra de posição. JWT, roles, auditoria e SFTP continuam fora desta fase. Antes de distribuir publicamente a imagem fornecida, confirme os direitos de uso.
+A API não declara jogadores online com base apenas na idade do arquivo. Os endpoints `players/online` e `map/live-players` reconstroem as sessões pelos eventos de entrada e saída do `Deadside.log`; o primeiro inclui jogadores sem save enquanto o segundo exige uma posição válida no mapa. `source_age_seconds` informa separadamente a idade da última amostra de posição. JWT, roles, auditoria e SFTP continuam fora desta fase. Antes de distribuir publicamente a imagem fornecida, confirme os direitos de uso.
 
 ## Montagem dos tiles do mapa
 

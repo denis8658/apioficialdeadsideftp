@@ -35,6 +35,7 @@ test("contains the API proxy, live-data views and social preview", async () => {
   ]);
   assert.match(dashboard, /map\/entities/);
   assert.match(dashboard, /kills\/leaderboard/);
+  assert.match(dashboard, /players\/online/);
   assert.match(dashboard, /new WebSocket/);
   assert.match(dashboard, /API Explorer/);
   assert.match(proxy, /DEADSIDE_API_URL/);

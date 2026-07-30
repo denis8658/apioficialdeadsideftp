@@ -53,3 +53,63 @@ async def test_live_players_excludes_stale_players_and_vehicles(tmp_path):
         ftp_sync_manager._online_player_ids.pop(server_id, None)
         app.dependency_overrides.clear()
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_online_players_includes_session_without_character_save(tmp_path):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'online-players.db').as_posix()}")
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    now = datetime.now(UTC)
+    server_id = uuid.uuid4()
+    async with sessions() as session:
+        session.add(Server(id=server_id, slug="online-list", name="Online List"))
+        session.add(CharacterCurrent(
+            server_id=server_id,
+            player_id="known-id",
+            login="Known Player",
+            pos_x=None,
+            pos_y=None,
+            inventory={},
+            raw_data={},
+            observed_at=now,
+        ))
+        await session.commit()
+
+    async def override_session():
+        async with sessions() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_session
+    ftp_sync_manager._online_logins[server_id] = {"Known Player", "Still Loading"}
+    ftp_sync_manager._online_player_ids[server_id] = {"known-id"}
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/api/v1/servers/online-list/players/online")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["count"] == 2
+        assert payload["identified_count"] == 1
+        assert payload["pending_character_count"] == 1
+        known, loading = payload["players"]
+        assert known["login"] == "Known Player"
+        assert known["player_id"] == "known-id"
+        assert known["has_character_data"] is True
+        assert known["has_position"] is False
+        assert loading == {
+            "login": "Still Loading",
+            "online": True,
+            "player_id": None,
+            "has_character_data": False,
+            "has_position": False,
+            "health": None,
+            "observed_at": None,
+            "source_age_seconds": None,
+        }
+    finally:
+        ftp_sync_manager._online_logins.pop(server_id, None)
+        ftp_sync_manager._online_player_ids.pop(server_id, None)
+        app.dependency_overrides.clear()
+        await engine.dispose()

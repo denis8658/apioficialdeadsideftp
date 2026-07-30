@@ -227,6 +227,10 @@ class FTPSyncManager:
     def online_player_ids(self, server_id: uuid.UUID) -> set[str]:
         return set(self._online_player_ids.get(server_id, set()))
 
+    def online_logins(self, server_id: uuid.UUID) -> set[str]:
+        """Return every active login, including sessions without a character save."""
+        return set(self._online_logins.get(server_id, set()))
+
     async def test_connection(self) -> dict[str, Any]:
         started = time.perf_counter()
         async with ReadOnlyFTPClient(self.settings) as client:

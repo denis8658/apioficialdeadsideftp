@@ -69,6 +69,7 @@ async def test_every_api_endpoint_returns_its_success_contract(tmp_path, monkeyp
         ("GET", f"/api/v1/servers/{slug}/characters", None, "GET /api/v1/servers/{server_id}/characters"),
         ("GET", f"/api/v1/servers/{slug}/characters/p1", None, "GET /api/v1/servers/{server_id}/characters/{player_id}"),
         ("GET", f"/api/v1/servers/{slug}/characters/p1/permanent", None, "GET /api/v1/servers/{server_id}/characters/{player_id}/permanent"),
+        ("GET", f"/api/v1/servers/{slug}/players/online", None, "GET /api/v1/servers/{server_id}/players/online"),
         ("GET", f"/api/v1/servers/{slug}/vehicles", None, "GET /api/v1/servers/{server_id}/vehicles"),
         ("GET", f"/api/v1/servers/{slug}/vehicles/v1", None, "GET /api/v1/servers/{server_id}/vehicles/{vehicle_uid}"),
         ("GET", f"/api/v1/servers/{slug}/storages", None, "GET /api/v1/servers/{server_id}/storages"),
