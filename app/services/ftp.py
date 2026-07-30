@@ -237,6 +237,7 @@ class FTPSyncManager:
         self._realtime_metadata: dict[uuid.UUID, dict[str, tuple[int, datetime | None]]] = {}
         self._realtime_last_success_at: dict[uuid.UUID, datetime] = {}
         self._realtime_cycle_duration_ms: dict[uuid.UUID, int] = {}
+        self._realtime_last_error: dict[uuid.UUID, str] = {}
         self._statuses: dict[uuid.UUID, SyncStatus] = {}
 
     def status(self, server_id: uuid.UUID) -> dict[str, Any]:
@@ -249,6 +250,7 @@ class FTPSyncManager:
         result["realtime_data_monitor"] = "running" if server_id in self._live_tasks else "stopped"
         result["realtime_last_success_at"] = self._realtime_last_success_at.get(server_id)
         result["realtime_cycle_duration_ms"] = self._realtime_cycle_duration_ms.get(server_id)
+        result["realtime_last_error"] = self._realtime_last_error.get(server_id)
         result["live_position_monitor"] = "running" if server_id in self._live_tasks else "stopped"
         result["live_position_interval_seconds"] = self.settings.ftp_live_position_interval_seconds
         result["websocket_snapshot_interval_seconds"] = self.settings.ftp_live_position_interval_seconds
@@ -662,12 +664,15 @@ class FTPSyncManager:
                                 (time.monotonic() - cycle_started) * 1000
                             )
                             self._realtime_last_success_at[server_id] = datetime.now(UTC)
+                            self._realtime_last_error.pop(server_id, None)
                             elapsed = time.monotonic() - cycle_started
                             await asyncio.sleep(max(0, self.settings.ftp_live_position_interval_seconds - elapsed))
                 except FTPIntegrationError as exc:
+                    self._realtime_last_error[server_id] = exc.safe_message
                     logger.warning("Live FTP position monitor reconnecting: %s", exc.safe_message)
                     await asyncio.sleep(self.settings.ftp_retry_base_seconds)
-                except Exception:
+                except Exception as exc:
+                    self._realtime_last_error[server_id] = type(exc).__name__
                     logger.exception("Live FTP position monitor failed; reconnecting")
                     await asyncio.sleep(self.settings.ftp_retry_base_seconds)
         except asyncio.CancelledError:
