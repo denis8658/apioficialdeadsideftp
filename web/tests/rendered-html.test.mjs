@@ -28,8 +28,9 @@ test("server-renders the Deadside dashboard shell and production metadata", asyn
 });
 
 test("contains the API proxy, live-data views and social preview", async () => {
-  const [dashboard, proxy, packageJson] = await Promise.all([
+  const [dashboard, mapMarkers, proxy, packageJson] = await Promise.all([
     readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/map-markers.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/proxy/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
@@ -38,9 +39,13 @@ test("contains the API proxy, live-data views and social preview", async () => {
   assert.match(dashboard, /players\/online/);
   assert.match(dashboard, /new WebSocket/);
   assert.match(dashboard, /API Explorer/);
+  assert.match(mapMarkers, /map-markers\.json/);
+  assert.match(mapMarkers, /Camadas densas/);
   assert.match(proxy, /DEADSIDE_API_URL/);
   assert.match(proxy, /safePosts/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await access(new URL("../public/og.png", import.meta.url));
+  await access(new URL("../public/map-markers.json", import.meta.url));
+  await access(new URL("../public/markers/marker-airdrop.png", import.meta.url));
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 });

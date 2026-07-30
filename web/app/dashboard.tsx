@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ReferenceMarkerControls, ReferenceMarkerLayer, useReferenceMarkers } from "./map-markers";
 
 type Dict = Record<string, any>;
 type Section = "overview" | "map" | "characters" | "vehicles" | "storages" | "combat" | "events" | "api";
@@ -81,6 +82,7 @@ export function Dashboard() {
   const [liveMap, setLiveMap] = useState<Dict>({ players: [], count: 0, position_poll_interval_seconds: 0.5 });
   const [mapZoom, setMapZoom] = useState(1);
   const [selectedMarker, setSelectedMarker] = useState<Dict | null>(null);
+  const referenceMarkers = useReferenceMarkers(mapZoom);
   const [wsToken, setWsToken] = useState("");
   const [wsState, setWsState] = useState<"fallback" | "connecting" | "live" | "error">("fallback");
   const [liveEvents, setLiveEvents] = useState<Dict[]>([]);
@@ -229,8 +231,10 @@ export function Dashboard() {
       <article className="panel map-panel">
         <PanelHead title="Jogadores ao vivo em Mirny" subtitle="Sessões confirmadas pelos eventos Join/Logout do log do servidor" action={<Badge tone="good">atualiza a cada 0,5 s</Badge>} />
         <div className="map-viewport">
+          <ReferenceMarkerControls data={referenceMarkers} />
           <div className="map-canvas" style={{ transform: `scale(${mapZoom})` }}>
             <img src={`/api/proxy?path=${encodeURIComponent(MAP_IMAGE_PATH)}`} alt="Mapa completo de Mirny" />
+            <ReferenceMarkerLayer data={referenceMarkers} onSelect={setSelectedMarker} onCluster={() => setMapZoom(z => Math.min(2, z + .2))} />
             {markerRows.map((item: Dict) => <button key={`${item.kind}-${item.id}`} className={`marker marker-${item.kind}`} style={{ left: `${item.map_position.x / 1280 * 100}%`, top: `${Math.abs(item.map_position.y) / 1408 * 100}%` }} title={`${item.kind === "character" ? "Personagem" : "Veículo"} ${item.id}`} onClick={() => setSelectedMarker(item)}><span>{item.kind === "character" ? "●" : "◆"}</span></button>)}
           </div>
           <div className="zoom"><button onClick={() => setMapZoom(z => Math.min(2, z + .2))}>+</button><button onClick={() => setMapZoom(z => Math.max(.7, z - .2))}>−</button><button onClick={() => setMapZoom(1)}>1:1</button></div>
@@ -239,7 +243,7 @@ export function Dashboard() {
       </article>
       <aside className="panel inspector">
         <PanelHead title="Inspetor" subtitle="Selecione um marcador" />
-        {selectedMarker ? <><div className="entity-emblem">◎</div><h3>{selectedMarker.login || "Jogador"}</h3><code>{selectedMarker.player_id}</code><dl className="facts stacked"><div><dt>Grid</dt><dd>{selectedMarker.map_position?.grid || "—"}</dd></div><div><dt>Saúde</dt><dd>{fmtNumber(selectedMarker.health, "%")}</dd></div><div><dt>Atualizado há</dt><dd>{fmtNumber(selectedMarker.source_age_seconds, " s")}</dd></div><div><dt>Mapa X</dt><dd>{fmtNumber(selectedMarker.map_position?.x)}</dd></div><div><dt>Mapa Y</dt><dd>{fmtNumber(selectedMarker.map_position?.y)}</dd></div></dl></> : <Empty title="Nenhum jogador selecionado" detail="Clique em um marcador ao vivo para ver nome, saúde e posição." />}
+        {selectedMarker ? selectedMarker.kind === "reference" ? <><div className="entity-emblem reference"><img src={selectedMarker.icon} alt="" /></div><h3>{selectedMarker.name}</h3><code>{selectedMarker.typeLabel}</code><dl className="facts stacked"><div><dt>Categoria</dt><dd>{selectedMarker.groupLabel}</dd></div><div><dt>Tipo</dt><dd>{selectedMarker.typeLabel}</dd></div><div><dt>Mapa X</dt><dd>{fmtNumber(selectedMarker.x)}</dd></div><div><dt>Mapa Y</dt><dd>{fmtNumber(selectedMarker.y)}</dd></div></dl></> : <><div className="entity-emblem">◎</div><h3>{selectedMarker.login || "Jogador"}</h3><code>{selectedMarker.player_id}</code><dl className="facts stacked"><div><dt>Grid</dt><dd>{selectedMarker.map_position?.grid || "—"}</dd></div><div><dt>Saúde</dt><dd>{fmtNumber(selectedMarker.health, "%")}</dd></div><div><dt>Atualizado há</dt><dd>{fmtNumber(selectedMarker.source_age_seconds, " s")}</dd></div><div><dt>Mapa X</dt><dd>{fmtNumber(selectedMarker.map_position?.x)}</dd></div><div><dt>Mapa Y</dt><dd>{fmtNumber(selectedMarker.map_position?.y)}</dd></div></dl></> : <Empty title="Nenhuma marcação selecionada" detail="Clique em um jogador ou em uma marcação fixa para ver os detalhes." />}
       </aside>
     </div>;
   };
