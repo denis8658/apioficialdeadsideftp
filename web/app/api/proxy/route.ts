@@ -23,12 +23,11 @@ async function forward(request: NextRequest) {
     headers.set("Content-Type", "application/json");
     body = await request.arrayBuffer();
   }
-  const isMapAsset = path.includes("/maps/mirny/image") || path.includes("/maps/mirny/tiles/");
   const response = await fetch(`${upstream}${path}`, {
     method,
     headers,
     body: body && body.byteLength ? body : undefined,
-    cache: isMapAsset ? "force-cache" : "no-store",
+    cache: "no-store",
   });
   const responseHeaders = new Headers();
   responseHeaders.set("Content-Type", response.headers.get("content-type") || "application/octet-stream");
