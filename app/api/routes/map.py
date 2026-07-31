@@ -25,6 +25,21 @@ class MapPointIn(BaseModel):
     y: float
 
 
+def _observed_age_seconds(observed_at: datetime, now: datetime) -> float:
+    if observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=UTC)
+    return max(0, round((now - observed_at).total_seconds(), 1))
+
+
+def _vehicle_marker_icon(row: VehicleCurrent) -> str:
+    identity = f"{row.display_name or ''} {row.actor_id or ''}".casefold()
+    if any(token in identity for token in ("boat", "barco", "water")):
+        return "boat"
+    if any(token in identity for token in ("bike", "moto", "motorcycle")):
+        return "bike"
+    return "car"
+
+
 @router.get("/config")
 async def map_config(server_id: str, session: AsyncSession = Depends(get_session)):
     await resolve_server(session, server_id)
@@ -59,6 +74,92 @@ async def entities(server_id: str, session: AsyncSession = Depends(get_session))
     return {"characters": [item for row in characters if (item := mapped(row, "player_id"))], "vehicles": [item for row in vehicles if (item := mapped(row, "vehicle_uid"))]}
 
 
+@router.get("/markers")
+async def ftp_markers(server_id: str, session: AsyncSession = Depends(get_session)):
+    """Map markers backed only by entities and coordinates read from the server FTP."""
+    server = await resolve_server(session, server_id)
+    from app.core.config import get_settings
+    from app.services.ftp import ftp_sync_manager
+
+    service = MapService()
+    now = datetime.now(UTC)
+    online_ids = ftp_sync_manager.online_player_ids(server.id)
+    characters = [] if not online_ids else (await session.scalars(
+        select(CharacterCurrent).where(
+            CharacterCurrent.server_id == server.id,
+            CharacterCurrent.player_id.in_(online_ids),
+            CharacterCurrent.pos_x.is_not(None),
+            CharacterCurrent.pos_y.is_not(None),
+        )
+    )).all()
+    vehicles = (await session.scalars(
+        select(VehicleCurrent).where(
+            VehicleCurrent.server_id == server.id,
+            VehicleCurrent.active.is_(True),
+            VehicleCurrent.pos_x.is_not(None),
+            VehicleCurrent.pos_y.is_not(None),
+        )
+    )).all()
+
+    markers = []
+    for row in characters:
+        position = service.position(row.pos_x, row.pos_y, row.pos_z)
+        if not position["map_position"]["inside_map"]:
+            continue
+        markers.append({
+            "id": f"player:{row.player_id}",
+            "entity_id": row.player_id,
+            "kind": "player",
+            "icon": "player",
+            "label": row.login or row.player_id,
+            "source": "ftp.character",
+            "player_id": row.player_id,
+            "login": row.login,
+            "health": row.health,
+            "rot_yaw": row.rot_yaw,
+            "observed_at": row.observed_at,
+            "source_modified_at": row.source_modified_at,
+            "source_age_seconds": _observed_age_seconds(row.observed_at, now),
+            **position,
+        })
+    for row in vehicles:
+        position = service.position(row.pos_x, row.pos_y, row.pos_z)
+        if not position["map_position"]["inside_map"]:
+            continue
+        markers.append({
+            "id": f"vehicle:{row.vehicle_uid}",
+            "entity_id": row.vehicle_uid,
+            "kind": "vehicle",
+            "icon": _vehicle_marker_icon(row),
+            "label": row.display_name or row.actor_id or row.vehicle_uid,
+            "source": "ftp.vehicle",
+            "vehicle_uid": row.vehicle_uid,
+            "display_name": row.display_name,
+            "actor_id": row.actor_id,
+            "fuel": row.fuel,
+            "durability": row.durability,
+            "lock_state": row.lock_state,
+            "active": row.active,
+            "observed_at": row.observed_at,
+            "source_modified_at": row.source_modified_at,
+            "source_age_seconds": _observed_age_seconds(row.observed_at, now),
+            **position,
+        })
+
+    player_count = sum(marker["kind"] == "player" for marker in markers)
+    vehicle_count = sum(marker["kind"] == "vehicle" for marker in markers)
+    return {
+        "markers": markers,
+        "count": len(markers),
+        "counts": {"players": player_count, "vehicles": vehicle_count},
+        "source_scope": "ftp_only",
+        "coordinate_sources": ["character_saves", "vehicle_saves"],
+        "excluded_without_exact_coordinates": ["storages"],
+        "refresh_interval_seconds": get_settings().ftp_live_position_interval_seconds,
+        "generated_at": now,
+    }
+
+
 @router.get("/live-players")
 async def live_players(
     server_id: str,
@@ -87,17 +188,14 @@ async def live_players(
         position = service.position(row.pos_x, row.pos_y, row.pos_z)
         if not position["map_position"]["inside_map"]:
             continue
-        source_modified_at = row.source_modified_at
-        if source_modified_at and source_modified_at.tzinfo is None:
-            source_modified_at = source_modified_at.replace(tzinfo=UTC)
         players.append({
             "id": row.player_id,
             "player_id": row.player_id,
             "login": row.login,
             "health": row.health,
             "rot_yaw": row.rot_yaw,
-            "source_modified_at": source_modified_at,
-            "source_age_seconds": max(0, round((now - (row.observed_at.replace(tzinfo=UTC) if row.observed_at.tzinfo is None else row.observed_at)).total_seconds(), 1)),
+            "source_modified_at": row.source_modified_at,
+            "source_age_seconds": _observed_age_seconds(row.observed_at, now),
             "observed_at": row.observed_at,
             **position,
         })

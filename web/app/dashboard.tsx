@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ReferenceMarkerControls, ReferenceMarkerLayer, useReferenceMarkers } from "./map-markers";
 
 type Dict = Record<string, any>;
 type Section = "overview" | "map" | "characters" | "vehicles" | "storages" | "combat" | "events" | "api";
@@ -29,7 +28,7 @@ const endpointCatalog = [
   ["Últimas kills", "GET", `${API_ROOT}/kills/latest`], ["Feed", "GET", `${API_ROOT}/kills/feed`], ["Estatísticas", "GET", `${API_ROOT}/kills/statistics`],
   ["Leaderboard", "GET", `${API_ROOT}/kills/leaderboard`], ["Armas", "GET", `${API_ROOT}/kills/weapons`], ["Timeline", "GET", `${API_ROOT}/kills/timeline`],
   ["GeoJSON", "GET", `${API_ROOT}/kills/geojson`], ["Heatmap", "GET", `${API_ROOT}/kills/heatmap`], ["Mapa config", "GET", `${API_ROOT}/map/config`],
-  ["Entidades do mapa", "GET", `${API_ROOT}/map/entities`], ["Jogadores online", "GET", `${API_ROOT}/players/online`], ["Jogadores no mapa", "GET", `${API_ROOT}/map/live-players`], ["WebSocket status", "GET", `${API_ROOT}/ws/status`], ["Eventos", "GET", `${API_ROOT}/events`],
+  ["Entidades do mapa", "GET", `${API_ROOT}/map/entities`], ["Marcadores FTP", "GET", `${API_ROOT}/map/markers`], ["Jogadores online", "GET", `${API_ROOT}/players/online`], ["Jogadores no mapa", "GET", `${API_ROOT}/map/live-players`], ["WebSocket status", "GET", `${API_ROOT}/ws/status`], ["Eventos", "GET", `${API_ROOT}/events`],
   ["Testar FTP", "POST", `${API_ROOT}/ftp/test`], ["Descobrir FTP", "POST", `${API_ROOT}/ftp/discover`],
   ["Sincronizar", "POST", `${API_ROOT}/sync/run`], ["Iniciar polling", "POST", `${API_ROOT}/sync/start`], ["Parar polling", "POST", `${API_ROOT}/sync/stop`],
 ];
@@ -79,10 +78,9 @@ export function Dashboard() {
   const [sync, setSync] = useState<Dict>({});
   const [wsStatus, setWsStatus] = useState<Dict>({});
   const [onlinePlayers, setOnlinePlayers] = useState<Dict>({ players: [], count: 0, pending_character_count: 0 });
-  const [liveMap, setLiveMap] = useState<Dict>({ players: [], count: 0, position_poll_interval_seconds: 0.5 });
+  const [mapMarkers, setMapMarkers] = useState<Dict>({ markers: [], count: 0, counts: { players: 0, vehicles: 0 }, refresh_interval_seconds: 0.5 });
   const [mapZoom, setMapZoom] = useState(1);
   const [selectedMarker, setSelectedMarker] = useState<Dict | null>(null);
-  const referenceMarkers = useReferenceMarkers(mapZoom);
   const [wsToken, setWsToken] = useState("");
   const [wsState, setWsState] = useState<"fallback" | "connecting" | "live" | "error">("fallback");
   const [liveEvents, setLiveEvents] = useState<Dict[]>([]);
@@ -100,11 +98,11 @@ export function Dashboard() {
         api<Dict[]>(`${API_ROOT}/characters?limit=1000`), api<Dict[]>(`${API_ROOT}/vehicles?limit=1000`), api<Dict[]>(`${API_ROOT}/storages?limit=1000`),
         api<Dict[]>(`${API_ROOT}/kills?limit=1000`), api<Dict>(`${API_ROOT}/kills/statistics`), api<Dict>(`${API_ROOT}/kills/leaderboard?limit=100`),
         api<Dict>(`${API_ROOT}/kills/weapons`), api<Dict>(`${API_ROOT}/kills/timeline?interval=day`), api<Dict>(`${API_ROOT}/sync/status`),
-        api<Dict[]>(`${API_ROOT}/events?limit=100`), api<Dict>(`${API_ROOT}/players/online`), api<Dict>(`${API_ROOT}/map/live-players`), api<Dict>(`${API_ROOT}/ws/status`),
+        api<Dict[]>(`${API_ROOT}/events?limit=100`), api<Dict>(`${API_ROOT}/players/online`), api<Dict>(`${API_ROOT}/map/markers`), api<Dict>(`${API_ROOT}/ws/status`),
       ]);
       setCharacters(chars); setVehicles(vehs); setStorages(stores); setKills(killRows); setStats(statRows);
       setLeaderboard(leaders.items || []); setWeapons(weaponRows.items || []); setTimeline(timelineRows.items || []);
-      setSync(syncRows); setEvents(eventRows.slice().reverse()); setOnlinePlayers(onlineRows); setLiveMap(mapRows); setWsStatus(socketRows);
+      setSync(syncRows); setEvents(eventRows.slice().reverse()); setOnlinePlayers(onlineRows); setMapMarkers(mapRows); setWsStatus(socketRows);
       setLastUpdated(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível carregar os dados.");
@@ -114,7 +112,7 @@ export function Dashboard() {
   useEffect(() => { load(); const timer = setInterval(() => load(true), 30000); return () => clearInterval(timer); }, [load]);
   useEffect(() => {
     const refreshLivePlayers = async () => {
-      try { setLiveMap(await api<Dict>(`${API_ROOT}/map/live-players`)); } catch { /* atualização geral exibirá o erro */ }
+      try { setMapMarkers(await api<Dict>(`${API_ROOT}/map/markers`)); } catch { /* atualização geral exibirá o erro */ }
     };
     refreshLivePlayers();
     const timer = setInterval(refreshLivePlayers, 500);
@@ -146,9 +144,10 @@ export function Dashboard() {
           else {
             setLiveEvents((current) => [{ ...event, channel }, ...current].slice(0, 100));
             if (event.event === "character.position.live" && event.data?.player_id) {
-              setLiveMap((current: Dict) => {
-                const players = [...(current.players || []).filter((item: Dict) => item.player_id !== event.data.player_id), event.data];
-                return { ...current, players, count: players.length, generated_at: event.published_at };
+              setMapMarkers((current: Dict) => {
+                const marker = { ...event.data, id: `player:${event.data.player_id}`, entity_id: event.data.player_id, kind: "player", icon: "player", label: event.data.login || event.data.player_id, source: "ftp.character" };
+                const markers = [...(current.markers || []).filter((item: Dict) => item.id !== marker.id), marker];
+                return { ...current, markers, count: markers.length, counts: { ...(current.counts || {}), players: markers.filter((item: Dict) => item.kind === "player").length }, generated_at: event.published_at };
               });
             } else if (event.event === "player.online" && event.data?.login) {
               setOnlinePlayers((current: Dict) => {
@@ -226,24 +225,22 @@ export function Dashboard() {
   </>;
 
   const renderMap = () => {
-    const markerRows = (liveMap.players || []).map((item: Dict) => ({ ...item, kind: "character" })).filter((item: Dict) => item.map_position?.inside_map);
+    const markerRows = (mapMarkers.markers || []).filter((item: Dict) => item.map_position?.inside_map);
     return <div className="map-layout">
       <article className="panel map-panel">
-        <PanelHead title="Jogadores ao vivo em Mirny" subtitle="Sessões confirmadas pelos eventos Join/Logout do log do servidor" action={<Badge tone="good">atualiza a cada 0,5 s</Badge>} />
+        <PanelHead title="Entidades FTP em Mirny" subtitle="Somente jogadores e veículos com coordenadas reais nos saves do servidor" action={<Badge tone="good">atualiza a cada 0,5 s</Badge>} />
         <div className="map-viewport">
-          <ReferenceMarkerControls data={referenceMarkers} />
           <div className="map-canvas" style={{ transform: `scale(${mapZoom})` }}>
             <img src={`/api/proxy?path=${encodeURIComponent(MAP_IMAGE_PATH)}`} alt="Mapa completo de Mirny" />
-            <ReferenceMarkerLayer data={referenceMarkers} onSelect={setSelectedMarker} onCluster={() => setMapZoom(z => Math.min(2, z + .2))} />
-            {markerRows.map((item: Dict) => <button key={`${item.kind}-${item.id}`} className={`marker marker-${item.kind}`} style={{ left: `${item.map_position.x / 1280 * 100}%`, top: `${Math.abs(item.map_position.y) / 1408 * 100}%` }} title={`${item.kind === "character" ? "Personagem" : "Veículo"} ${item.id}`} onClick={() => setSelectedMarker(item)}><span>{item.kind === "character" ? "●" : "◆"}</span></button>)}
+            {markerRows.map((item: Dict) => <button key={item.id} className={`marker marker-${item.kind}`} style={{ left: `${item.map_position.x / 1280 * 100}%`, top: `${Math.abs(item.map_position.y) / 1408 * 100}%` }} title={`${item.kind === "player" ? "Jogador" : "Veículo"}: ${item.label}`} onClick={() => setSelectedMarker(item)}>{item.kind === "vehicle" ? <img src={`/markers/marker-${item.icon || "car"}.png`} alt="" /> : <span>●</span>}</button>)}
           </div>
           <div className="zoom"><button onClick={() => setMapZoom(z => Math.min(2, z + .2))}>+</button><button onClick={() => setMapZoom(z => Math.max(.7, z - .2))}>−</button><button onClick={() => setMapZoom(1)}>1:1</button></div>
-          <div className="map-legend"><span><i className="legend-player" />Jogador no mapa</span><b>{markerRows.length} no mapa · {onlinePlayers.count || 0} online</b></div>
+          <div className="map-legend"><span><i className="legend-player" />Jogadores</span><span><i className="legend-vehicle" />Veículos</span><b>{mapMarkers.counts?.players || 0} jogadores · {mapMarkers.counts?.vehicles || 0} veículos</b></div>
         </div>
       </article>
       <aside className="panel inspector">
         <PanelHead title="Inspetor" subtitle="Selecione um marcador" />
-        {selectedMarker ? selectedMarker.kind === "reference" ? <><div className="entity-emblem reference"><img src={selectedMarker.icon} alt="" /></div><h3>{selectedMarker.name}</h3><code>{selectedMarker.typeLabel}</code><dl className="facts stacked"><div><dt>Categoria</dt><dd>{selectedMarker.groupLabel}</dd></div><div><dt>Tipo</dt><dd>{selectedMarker.typeLabel}</dd></div><div><dt>Mapa X</dt><dd>{fmtNumber(selectedMarker.x)}</dd></div><div><dt>Mapa Y</dt><dd>{fmtNumber(selectedMarker.y)}</dd></div></dl></> : <><div className="entity-emblem">◎</div><h3>{selectedMarker.login || "Jogador"}</h3><code>{selectedMarker.player_id}</code><dl className="facts stacked"><div><dt>Grid</dt><dd>{selectedMarker.map_position?.grid || "—"}</dd></div><div><dt>Saúde</dt><dd>{fmtNumber(selectedMarker.health, "%")}</dd></div><div><dt>Atualizado há</dt><dd>{fmtNumber(selectedMarker.source_age_seconds, " s")}</dd></div><div><dt>Mapa X</dt><dd>{fmtNumber(selectedMarker.map_position?.x)}</dd></div><div><dt>Mapa Y</dt><dd>{fmtNumber(selectedMarker.map_position?.y)}</dd></div></dl></> : <Empty title="Nenhuma marcação selecionada" detail="Clique em um jogador ou em uma marcação fixa para ver os detalhes." />}
+        {selectedMarker ? selectedMarker.kind === "vehicle" ? <><div className="entity-emblem vehicle"><img src={`/markers/marker-${selectedMarker.icon || "car"}.png`} alt="" /></div><h3>{selectedMarker.display_name || selectedMarker.actor_id || "Veículo"}</h3><code>{selectedMarker.vehicle_uid}</code><dl className="facts stacked"><div><dt>Grid</dt><dd>{selectedMarker.map_position?.grid || "—"}</dd></div><div><dt>Combustível</dt><dd>{fmtNumber(selectedMarker.fuel)}</dd></div><div><dt>Durabilidade</dt><dd>{fmtNumber(selectedMarker.durability)}</dd></div><div><dt>Atualizado há</dt><dd>{fmtNumber(selectedMarker.source_age_seconds, " s")}</dd></div></dl></> : <><div className="entity-emblem">◎</div><h3>{selectedMarker.login || "Jogador"}</h3><code>{selectedMarker.player_id}</code><dl className="facts stacked"><div><dt>Grid</dt><dd>{selectedMarker.map_position?.grid || "—"}</dd></div><div><dt>Saúde</dt><dd>{fmtNumber(selectedMarker.health, "%")}</dd></div><div><dt>Atualizado há</dt><dd>{fmtNumber(selectedMarker.source_age_seconds, " s")}</dd></div><div><dt>Mapa X</dt><dd>{fmtNumber(selectedMarker.map_position?.x)}</dd></div><div><dt>Mapa Y</dt><dd>{fmtNumber(selectedMarker.map_position?.y)}</dd></div></dl></> : <Empty title="Nenhuma entidade selecionada" detail="Clique em um jogador ou veículo proveniente do FTP para ver os detalhes." />}
       </aside>
     </div>;
   };

@@ -87,6 +87,7 @@ async def test_every_api_endpoint_returns_its_success_contract(tmp_path, monkeyp
         ("POST", f"/api/v1/servers/{slug}/map/convert", {"json": {"x": 10, "y": 20, "z": 30}}, "POST /api/v1/servers/{server_id}/map/convert"),
         ("POST", f"/api/v1/servers/{slug}/map/reverse-convert", {"json": {"x": 640, "y": -896}}, "POST /api/v1/servers/{server_id}/map/reverse-convert"),
         ("GET", f"/api/v1/servers/{slug}/map/entities", None, "GET /api/v1/servers/{server_id}/map/entities"),
+        ("GET", f"/api/v1/servers/{slug}/map/markers", None, "GET /api/v1/servers/{server_id}/map/markers"),
         ("GET", f"/api/v1/servers/{slug}/map/live-players", None, "GET /api/v1/servers/{server_id}/map/live-players"),
         ("GET", f"/api/v1/servers/{slug}/kills", None, "GET /api/v1/servers/{server_id}/kills"),
         ("GET", f"/api/v1/servers/{slug}/kills/latest", None, "GET /api/v1/servers/{server_id}/kills/latest"),

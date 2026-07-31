@@ -149,8 +149,9 @@ header h1 { margin: 3px 0 0; font-size: 23px; letter-spacing: -.6px; }
 .map-canvas::after { content: ""; pointer-events: none; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(167,244,50,.05) calc(10% - 1px) 10%), repeating-linear-gradient(0deg, transparent 0 calc(10% - 1px), rgba(167,244,50,.05) calc(10% - 1px) 10%); }
 .marker { position: absolute; z-index: 8; transform: translate(-50%, -50%); width: 22px; height: 22px; border-radius: 50%; border: 2px solid #0b0e10; display: grid; place-items: center; padding: 0; cursor: pointer; box-shadow: 0 0 0 2px currentColor, 0 0 15px currentColor; }
 .marker span { font-size: 8px; }
-.marker-character { background: var(--green); color: var(--green); }
+.marker-player { background: var(--green); color: var(--green); }
 .marker-vehicle { background: var(--orange); color: var(--orange); border-radius: 2px; }
+.marker-vehicle img { width: 25px; height: 35px; object-fit: contain; transform: translateY(-5px); filter: drop-shadow(0 2px 3px #000); }
 .zoom { position: sticky; z-index: 6; left: 15px; bottom: 15px; width: fit-content; display: flex; background: rgba(10,13,14,.9); }
 .zoom button { min-width: 35px; height: 35px; color: var(--text); }
 .map-legend { position: sticky; z-index: 5; bottom: 15px; margin: -50px 15px 15px auto; width: fit-content; display: flex; gap: 14px; align-items: center; padding: 9px 12px; background: rgba(10,13,14,.9); border: 1px solid var(--line); font-size: 9px; }
@@ -158,38 +159,7 @@ header h1 { margin: 3px 0 0; font-size: 23px; letter-spacing: -.6px; }
 .map-legend i { width: 8px; height: 8px; }
 .legend-player { background: var(--green); border-radius: 50%; } .legend-vehicle { background: var(--orange); }
 .map-legend b { color: var(--muted); }
-.marker-controls { position: sticky; z-index: 12; top: 12px; left: 12px; width: min(265px, calc(100% - 24px)); margin: 12px 0 -150px 12px; padding: 11px; background: rgba(8,11,12,.94); border: 1px solid var(--line); box-shadow: 0 12px 35px rgba(0,0,0,.38); backdrop-filter: blur(10px); }
-.marker-controls-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
-.marker-controls-head span b, .marker-controls-head span small { display: block; }
-.marker-controls-head span b { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; }
-.marker-controls-head span small { margin-top: 2px; color: var(--muted); font-size: 8px; }
-.marker-controls-head em { color: var(--green); font-size: 8px; font-style: normal; border: 1px solid rgba(167,244,50,.24); padding: 3px 5px; }
-.marker-filter-list { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
-.marker-filter-list button { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px; border: 1px solid var(--line-soft); background: #0d1112; color: var(--muted); text-align: left; opacity: .55; }
-.marker-filter-list button.active { color: var(--text); opacity: 1; border-color: rgba(167,244,50,.32); background: rgba(167,244,50,.07); }
-.marker-filter-list img { width: 18px; height: 18px; object-fit: contain; }
-.marker-filter-list span { min-width: 0; font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.marker-filter-list small { display: block; margin-top: 1px; color: var(--muted); font-size: 7px; }
-.marker-controls > p { margin: 8px 0 0; color: var(--muted); font-size: 7px; line-height: 1.4; }
-.map-reference-zones, .map-reference-markers, .map-place-labels { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.map-reference-zones { overflow: visible; }
-.map-reference-zones circle { vector-effect: non-scaling-stroke; stroke-width: 1.5; }
-.safe-zone { fill: rgba(52,211,102,.14); stroke: rgba(88,255,136,.82); }
-.mission-zone { fill: rgba(207,65,36,.13); stroke: rgba(245,98,67,.72); }
-.convoy-route { fill: none; stroke: #cf9100; stroke-width: 2.4; stroke-dasharray: 6 4; opacity: .72; vector-effect: non-scaling-stroke; }
-.map-place-labels { z-index: 3; }
-.map-place-labels span { position: absolute; transform: translate(-50%, -50%); color: rgba(255,255,255,.72); font: 700 9px var(--font-mono); letter-spacing: .6px; text-shadow: 0 1px 3px #000, 0 0 5px #000; white-space: nowrap; }
-.reference-marker { position: absolute; pointer-events: auto; z-index: 4; transform: translate(-50%, -85%); width: 25px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; filter: drop-shadow(0 2px 3px rgba(0,0,0,.9)); }
-.reference-marker img { width: 25px; height: 36px; object-fit: contain; }
-.reference-marker.clustered { transform: translate(-50%, -50%); width: 35px; height: 35px; border: 1px solid rgba(255,255,255,.2); border-radius: 50%; background: rgba(10,13,14,.9); }
-.reference-marker.clustered img { width: 28px; height: 28px; opacity: .48; }
-.reference-marker.clustered strong { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font: 700 9px var(--font-mono); text-shadow: 0 1px 3px #000; }
-.reference-marker-locations.clustered, .reference-marker-services.clustered { box-shadow: 0 0 0 2px rgba(99,190,255,.45); }
-.reference-marker-missions.clustered { box-shadow: 0 0 0 2px rgba(243,164,59,.5); }
-.reference-marker-events.clustered { box-shadow: 0 0 0 2px rgba(224,75,57,.52); }
-.reference-marker-animals.clustered, .reference-marker-foraging.clustered { box-shadow: 0 0 0 2px rgba(167,244,50,.43); }
-.reference-marker-vehicles.clustered, .reference-marker-loot.clustered { box-shadow: 0 0 0 2px rgba(190,139,255,.45); }
-.entity-emblem.reference img { width: 35px; height: 50px; object-fit: contain; }
+.entity-emblem.vehicle img { width: 35px; height: 50px; object-fit: contain; }
 .inspector { padding-bottom: 20px; height: fit-content; }
 .entity-emblem { width: 72px; height: 72px; margin: 32px auto 15px; display: grid; place-items: center; background: rgba(167,244,50,.08); color: var(--green); border: 1px solid rgba(167,244,50,.2); font-size: 28px; }
 .entity-emblem.vehicle { color: var(--orange); background: rgba(243,164,59,.08); border-color: rgba(243,164,59,.2); }

@@ -232,9 +232,9 @@ Os nomes `actual1`, `characters1-9`, `new_vehicles1-9` e `storages1-9` abaixo re
 
 | Categoria | Padrão observado no FTP | Formato | Endpoints alimentados |
 |---|---|---|---|
-| Personagem atual | `Deadside/Saved/actual1/characters1-9/world_0/{player_id}.sav` | JSON UTF-8, apesar da extensão `.sav` | `/characters`, `/map/entities` e eventos de personagem |
+| Personagem atual | `Deadside/Saved/actual1/characters1-9/world_0/{player_id}.sav` | JSON UTF-8, apesar da extensão `.sav` | `/characters`, `/map/entities`, `/map/markers` e eventos de personagem |
 | Personagem permanente | `Deadside/Saved/actual1/characters_nowipe/{player_id}.sav` | JSON UTF-8 | `/characters/{player_id}/permanent` |
-| Veículos | `Deadside/Saved/actual1/new_vehicles1-9/world_0/new_vehicles.sav` | JSON UTF-8 com `Count` e objetos `VehicleN` | `/vehicles`, `/map/entities` e eventos de veículo |
+| Veículos | `Deadside/Saved/actual1/new_vehicles1-9/world_0/new_vehicles.sav` | JSON UTF-8 com `Count` e objetos `VehicleN` | `/vehicles`, `/map/entities`, `/map/markers` e eventos de veículo |
 | Storages | `Deadside/Saved/actual1/storages1-9/world_0/{player_id}_itemstorage_...sav` | JSON UTF-8 | `/storages` e eventos de storage |
 | Mortes e kills | `Deadside/Saved/actual1/deathlogs/world_0/*.csv` | CSV sem cabeçalho, dez colunas separadas por `;` | `/kills`, `/players/...` e eventos de combate |
 | Bases | caminhos cujo arquivo começa com `bases` | Binário | Apenas inventário técnico como `metadata_only`; sem endpoint de conteúdo |
@@ -433,6 +433,7 @@ As posições vêm dos JSON de personagens e veículos. A imagem não vem do FTP
 | `POST /api/v1/servers/{server_id}/map/convert` | JSON `{"x":12345,"y":-67890,"z":250}` em coordenadas Unreal | `world_position` e `map_position`; esta última contém `inside_map` e `grid`. |
 | `POST /api/v1/servers/{server_id}/map/reverse-convert` | JSON `{"x":640,"y":-896}` no mapa | Coordenadas `x/y` aproximadas no mundo do jogo. |
 | `GET /api/v1/servers/{server_id}/map/entities` | Nenhuma | Personagens com posição e veículos ativos com posição, prontos para marcadores. |
+| `GET /api/v1/servers/{server_id}/map/markers` | Nenhuma | Coleção normalizada de marcadores exclusivamente derivados do FTP: jogadores com sessão online e save posicional, mais veículos ativos com coordenadas. Storages são omitidos porque o FTP não fornece coordenadas mundiais exatas para eles. |
 | `GET /api/v1/servers/{server_id}/map/live-players` | sem filtro obrigatório | Somente sessões confirmadas pelos marcadores `Join succeeded` e `has logged out` do `Saved/Logs/Deadside.log`. O monitor baixa apenas os saves desses jogadores em `characters*/world_*`, com alvo de `FTP_LIVE_POSITION_INTERVAL_SECONDS=0.5`, e publica snapshots efêmeros `character.position.live` no WebSocket a cada 0,5 s. Veículos e jogadores desconectados nunca entram nesta resposta. |
 | `GET /api/v1/maps/mirny/image` | Nenhuma | PNG consolidado 1280×1408, com cache público de 24 horas e `Content-Disposition`. |
 | `GET /static/maps/mirny/tiles/map_{x}_{y}.png` | `x` e `y` de 0 a 2 no caminho | Tile original 512×512. Arquivo inexistente retorna 404. |
