@@ -28,8 +28,9 @@ test("server-renders the Deadside dashboard shell and production metadata", asyn
 });
 
 test("contains the API proxy, live-data views and social preview", async () => {
-  const [dashboard, proxy, packageJson] = await Promise.all([
+  const [dashboard, leafletMap, proxy, packageJson] = await Promise.all([
     readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/ftp-leaflet-map.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/proxy/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
@@ -40,6 +41,9 @@ test("contains the API proxy, live-data views and social preview", async () => {
   assert.match(dashboard, /API Explorer/);
   assert.match(dashboard, /map\/markers/);
   assert.match(dashboard, /Somente jogadores e veículos com coordenadas reais/);
+  assert.match(leafletMap, /L\.CRS\.Simple/);
+  assert.match(leafletMap, /zoomReverse: true/);
+  assert.match(leafletMap, /markers\.forEach/);
   assert.match(proxy, /DEADSIDE_API_URL/);
   assert.match(proxy, /safePosts/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

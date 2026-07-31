@@ -23,15 +23,16 @@ async function forward(request: NextRequest) {
     headers.set("Content-Type", "application/json");
     body = await request.arrayBuffer();
   }
+  const isMapAsset = path.includes("/maps/mirny/image") || path.includes("/maps/mirny/tiles/");
   const response = await fetch(`${upstream}${path}`, {
     method,
     headers,
     body: body && body.byteLength ? body : undefined,
-    cache: "no-store",
+    cache: isMapAsset ? "force-cache" : "no-store",
   });
   const responseHeaders = new Headers();
   responseHeaders.set("Content-Type", response.headers.get("content-type") || "application/octet-stream");
-  responseHeaders.set("Cache-Control", path.includes("/maps/mirny/image") ? "public, max-age=86400" : "no-store");
+  responseHeaders.set("Cache-Control", path.includes("/maps/mirny/tiles/") ? "public, max-age=31536000, immutable" : path.includes("/maps/mirny/image") ? "public, max-age=86400" : "no-store");
   const requestId = response.headers.get("x-request-id");
   if (requestId) responseHeaders.set("X-Request-ID", requestId);
   return new Response(await response.arrayBuffer(), { status: response.status, headers: responseHeaders });

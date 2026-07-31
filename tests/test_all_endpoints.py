@@ -62,6 +62,7 @@ async def test_every_api_endpoint_returns_its_success_contract(tmp_path, monkeyp
         ("GET", "/api/v1/diagnostics/parsers", None, "GET /api/v1/diagnostics/parsers"),
         ("GET", "/api/v1/diagnostics/cors", None, "GET /api/v1/diagnostics/cors"),
         ("GET", "/api/v1/maps/mirny/image", None, "GET /api/v1/maps/mirny/image"),
+        ("GET", "/api/v1/maps/mirny/tiles/lod_4/map_0_0.png", None, "GET /api/v1/maps/mirny/tiles/lod_{lod}/map_{x}_{y}.png"),
         ("GET", "/api/v1/servers", None, "GET /api/v1/servers"),
         ("POST", "/api/v1/servers", {"json": {"slug": "created-server", "name": "Created"}}, "POST /api/v1/servers"),
         ("GET", f"/api/v1/servers/{slug}", None, "GET /api/v1/servers/{server_id}"),

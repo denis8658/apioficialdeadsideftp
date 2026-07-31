@@ -425,7 +425,7 @@ Quando `deaths` é zero, `kd_ratio` é `null` e `undefeated` é `true`; a API n�
 
 ### Mapa e coordenadas
 
-As posições vêm dos JSON de personagens e veículos. A imagem não vem do FTP: foi montada localmente a partir dos nove tiles fornecidos, sem hotlink.
+As posições vêm dos JSON de personagens e veículos. A imagem e os quatro níveis LOD não vêm do FTP: foram montados localmente a partir dos tiles fornecidos, sem hotlink. O frontend usa Leaflet com `CRS.Simple`, zoom de `-1` a `3`, arraste, roda do mouse e gesto de pinça.
 
 | Método e endpoint | Entrada | Resultado |
 |---|---|---|
@@ -436,7 +436,7 @@ As posições vêm dos JSON de personagens e veículos. A imagem não vem do FTP
 | `GET /api/v1/servers/{server_id}/map/markers` | Nenhuma | Coleção normalizada de marcadores exclusivamente derivados do FTP: jogadores com sessão online e save posicional, mais veículos ativos com coordenadas. Storages são omitidos porque o FTP não fornece coordenadas mundiais exatas para eles. |
 | `GET /api/v1/servers/{server_id}/map/live-players` | sem filtro obrigatório | Somente sessões confirmadas pelos marcadores `Join succeeded` e `has logged out` do `Saved/Logs/Deadside.log`. O monitor baixa apenas os saves desses jogadores em `characters*/world_*`, com alvo de `FTP_LIVE_POSITION_INTERVAL_SECONDS=0.5`, e publica snapshots efêmeros `character.position.live` no WebSocket a cada 0,5 s. Veículos e jogadores desconectados nunca entram nesta resposta. |
 | `GET /api/v1/maps/mirny/image` | Nenhuma | PNG consolidado 1280×1408, com cache público de 24 horas e `Content-Disposition`. |
-| `GET /static/maps/mirny/tiles/map_{x}_{y}.png` | `x` e `y` de 0 a 2 no caminho | Tile original 512×512. Arquivo inexistente retorna 404. |
+| `GET /api/v1/maps/mirny/tiles/lod_{lod}/map_{x}_{y}.png` | `lod` de 1 a 4 e coordenadas válidas para o nível | Tile PNG 512×512 com cache imutável. Arquivo ou coordenada inexistente retorna 404. |
 
 ### Eventos REST e WebSocket
 
@@ -495,11 +495,7 @@ Montagem limpa, sem recorte:
 python montar_mapa_deadside.py --input-dir ./tiles --output deadside_map_full.png
 ```
 
-Montagem dos tiles incluídos com os limites Leaflet exatos usados pela API:
-
-```bash
-python montar_mapa_deadside.py --input-dir app/static/maps/mirny/tiles --output app/static/maps/mirny/deadside_map.png --crop-mode manual --crop-left 0 --crop-top 0 --crop-right 1280 --crop-bottom 1408
-```
+Os tiles usados em produção ficam em `app/static/maps/mirny/lod_1` até `lod_4`. A API valida os limites de cada nível e o Leaflet escolhe automaticamente o LOD conforme o zoom.
 
 Recorte automático das bordas externas pretas ou transparentes:
 

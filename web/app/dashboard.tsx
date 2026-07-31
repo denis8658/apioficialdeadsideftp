@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import FtpLeafletMap from "./ftp-leaflet-map";
 
 type Dict = Record<string, any>;
 type Section = "overview" | "map" | "characters" | "vehicles" | "storages" | "combat" | "events" | "api";
@@ -79,7 +80,6 @@ export function Dashboard() {
   const [wsStatus, setWsStatus] = useState<Dict>({});
   const [onlinePlayers, setOnlinePlayers] = useState<Dict>({ players: [], count: 0, pending_character_count: 0 });
   const [mapMarkers, setMapMarkers] = useState<Dict>({ markers: [], count: 0, counts: { players: 0, vehicles: 0 }, refresh_interval_seconds: 0.5 });
-  const [mapZoom, setMapZoom] = useState(1);
   const [selectedMarker, setSelectedMarker] = useState<Dict | null>(null);
   const [wsToken, setWsToken] = useState("");
   const [wsState, setWsState] = useState<"fallback" | "connecting" | "live" | "error">("fallback");
@@ -229,14 +229,7 @@ export function Dashboard() {
     return <div className="map-layout">
       <article className="panel map-panel">
         <PanelHead title="Entidades FTP em Mirny" subtitle="Somente jogadores e veículos com coordenadas reais nos saves do servidor" action={<Badge tone="good">atualiza a cada 0,5 s</Badge>} />
-        <div className="map-viewport">
-          <div className="map-canvas" style={{ transform: `scale(${mapZoom})` }}>
-            <img src={`/api/proxy?path=${encodeURIComponent(MAP_IMAGE_PATH)}`} alt="Mapa completo de Mirny" />
-            {markerRows.map((item: Dict) => <button key={item.id} className={`marker marker-${item.kind}`} style={{ left: `${item.map_position.x / 1280 * 100}%`, top: `${Math.abs(item.map_position.y) / 1408 * 100}%` }} title={`${item.kind === "player" ? "Jogador" : "Veículo"}: ${item.label}`} onClick={() => setSelectedMarker(item)}>{item.kind === "vehicle" ? <img src={`/markers/marker-${item.icon || "car"}.png`} alt="" /> : <span>●</span>}</button>)}
-          </div>
-          <div className="zoom"><button onClick={() => setMapZoom(z => Math.min(2, z + .2))}>+</button><button onClick={() => setMapZoom(z => Math.max(.7, z - .2))}>−</button><button onClick={() => setMapZoom(1)}>1:1</button></div>
-          <div className="map-legend"><span><i className="legend-player" />Jogadores</span><span><i className="legend-vehicle" />Veículos</span><b>{mapMarkers.counts?.players || 0} jogadores · {mapMarkers.counts?.vehicles || 0} veículos</b></div>
-        </div>
+        <FtpLeafletMap markers={markerRows} counts={mapMarkers.counts || {}} onSelect={setSelectedMarker} />
       </article>
       <aside className="panel inspector">
         <PanelHead title="Inspetor" subtitle="Selecione um marcador" />
