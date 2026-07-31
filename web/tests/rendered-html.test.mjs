@@ -44,6 +44,7 @@ test("contains the API proxy, live-data views and social preview", async () => {
   assert.match(leafletMap, /L\.CRS\.Simple/);
   assert.match(leafletMap, /zoomReverse: true/);
   assert.match(leafletMap, /markers\.forEach/);
+  assert.match(leafletMap, /%2Fapi%2Fv1%2Fmaps%2Fmirny%2Ftiles/);
   assert.match(proxy, /DEADSIDE_API_URL/);
   assert.match(proxy, /safePosts/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

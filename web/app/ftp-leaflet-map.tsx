@@ -11,7 +11,7 @@ type LeafletRuntime = {
   L: typeof import("leaflet");
 };
 
-const TILE_URL = "/api/proxy?path=/api/v1/maps/mirny/tiles/lod_{z}/map_{x}_{y}.png";
+const TILE_URL = "/api/proxy?path=%2Fapi%2Fv1%2Fmaps%2Fmirny%2Ftiles%2Flod_{z}%2Fmap_{x}_{y}.png";
 
 export default function FtpLeafletMap({
   markers,
